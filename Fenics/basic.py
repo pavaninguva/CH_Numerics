@@ -19,18 +19,18 @@ Simulation Parameters
 #Length of simulation domain
 Lx = 5
 #Number of Cells
-nx = 100
+nx = 50
 
 #Initial Composition
 phi_0 = 0.5
 #Noise Magnitude
 noise_mag = 0.03
 #FH Parameters
-Nchi = 20.0
+Nchi = 8.0
 
 #Simulation time
-t_end = 1.0
-dt = 0.001
+t_end = 40.0
+dt = 0.1
 #Theta is for timestepping: 1 for Backward Euler, 0.5 for Crank-Nicolson
 theta = 1.0
 
@@ -76,12 +76,12 @@ class InitialConditions(UserExpression):
         # [0] corresponds to the concentration field for species 1
         # [1] coresponds to the mu field
         #Uniform with noise
-        # values[0] = phi_0 + 2.0*noise_mag*(0.5 - random.random())
+        values[0] = phi_0 + 2.0*noise_mag*(0.5 - random.random())
         #Step function
-        if between(x[0],(0.0,Lx/2)):
-            values[0] = 0.2
-        else:
-            values[0] = 0.8
+        # if between(x[0],(0.0,Lx/2)):
+        #     values[0] = 0.2
+        # else:
+        #     values[0] = 0.8
         values[1] = 0.0
     def value_shape(self):
         return (2,)
@@ -144,15 +144,34 @@ solver = CustomSolver()
 """
 Perform Solution
 """
+#Compute phi0_total
+phi0_tot = assemble(phi*dx())
+
+#Compute IFT
+IFT0 = assemble(kappa*dot(grad(phi),grad(phi))*dx())
+
+massdev_list = [0.0]
+t_list = [0.0]
+ift_list = [IFT0]
+
+
+
 # file = File("output.pvd", "compressed")
 t = 0.0
 while t < t_end -1e-8:
     #Update time
     t = t+dt
+    t_list.append(t)
     print("Current Simulation Time is %s"%t)
     ch0.vector()[:] = ch.vector()
     solver.solve(problem, ch.vector())
-    # file << (ch.split()[0], t)
+    #Compute phi_tot
+    phi_tot = assemble(phi*dx())
+    massdev_list.append(abs(phi0_tot-phi_tot))
+    #Compute IFT
+    ift_list.append(assemble(kappa*dot(grad(phi),grad(phi))*dx()))
+
+
 
 
 """
@@ -169,6 +188,21 @@ plt.xlabel(r"$\tilde{x}$")
 plt.ylabel(r"$\phi$")
 # plt.ylim((0.0,1.0))
 plt.tight_layout()
+
+#Plot IFT
+fig2 = plt.figure(num=2)
+plt.plot(t_list,ift_list)
+plt.xlabel(r"$\tilde{t}$")
+plt.ylabel(r"$\frac{\gamma}{R_{G} \rho_{m}RT}$")
+plt.tight_layout()
+
+#Plot mass conservation
+fig3 = plt.figure(num=3)
+plt.semilogy(t_list,massdev_list)
+plt.xlabel(r"$\tilde{t}$")
+plt.ylabel("Mass Deviation")
+plt.tight_layout()
+
 
 plt.show()
 

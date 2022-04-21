@@ -16,9 +16,9 @@ warnings.filterwarnings("error")
 Simulation Parameters
 """
 #Length of simulation domain
-Lx = 10
+Lx = 5
 #Number of Cells
-nx = 40
+nx = 50
 #Compute dx
 dx = Lx/nx
 
@@ -27,11 +27,12 @@ phi0 = 0.5
 #Noise Magnitude
 noise_mag = 0.01
 #FH Parameters
-Nchi = 4.0
+Nchi = 5.0
+kappa = (2.0/3.0)*Nchi
 
 #Simulation time
-t_end = 400.0
-dt = 0.5
+t_end = 40.0
+dt = 0.1
 
 """
 Construct Problem
@@ -64,8 +65,12 @@ x_np = np.asarray(x)
 # phi0_tot = np.trapz(phi_0_np,x=x_np)
 phi0_tot = np.sum(phi0_np)
 
+#Compute initial IFT
+grad_phi0 = np.gradient(phi0_np,x_np,edge_order=2)
+int_gradphi0 = np.trapz(kappa*grad_phi0**2,x=x_np)
+IFT0 = int_gradphi0
+
 #Define Problem
-kappa = (2/3)*Nchi
 dgda = (1-2*phi)*Nchi + numerix.log(phi) - numerix.log(1-phi)
 
 eq1 = TransientTerm(var=phi) == DiffusionTerm(coeff=(phi*(1-phi)),var=mu)
@@ -79,13 +84,15 @@ print ("Problem Specified")
 """
 Perform Solution
 """
-solver = LinearLUSolver(tolerance=1e-10, precon="sor")
+solver = LinearGMRESSolver(tolerance=1e-10, precon="redundant")
 
 t = 0.0
 t_list = [0.0]
 mass_list = [0.0]
+IFT_list = [IFT0]
 counter = 0
 breaker = False
+clipping = False
 
 while t < t_end -1e-5:
     #Update time and counter
@@ -96,10 +103,16 @@ while t < t_end -1e-5:
     res = 1e4
     while res > 1e-10:
         try:
+            if clipping is True:
+                phi.setValue(1e-10, where=phi<0.)
+                phi.setValue(1.0-1e-10, where=phi>1.0)
+            else:
+                pass
             res = eq.sweep(dt=dt,solver=solver)
         except RuntimeWarning:
-            breaker = True
             print("Simulation Diverged at t=%s"%t)
+            breaker = True
+            print("Terminating Simulation at t=%s"%t)
             break
     if breaker is True:
         break
@@ -108,6 +121,11 @@ while t < t_end -1e-5:
     # mass_list.append(phi0_tot - np.trapz(phi_vals_np,x=x_np))
     mass_list.append(abs(phi0_tot - np.sum(phi_vals_np.copy())))
     t_list.append(t)
+    #Compute interfacial tension
+    grad_phi = np.gradient(phi_vals_np,x_np,edge_order=2)
+    IFT_list.append(np.trapz(kappa*grad_phi**2,x=x_np))
+
+
     
     print("Current Simulation Time is %s"%t)
 
@@ -121,13 +139,30 @@ plt.xlabel(r"$\tilde{t}$")
 plt.ylabel("Mass Deviation")
 plt.tight_layout()
 
-#Plot Solution at final time
+#Plot dphi/dx at end
 fig2 = plt.figure(num=2)
+plt.plot(x_np,grad_phi)
+plt.xlabel(r"$\tilde{x}$")
+plt.ylabel(r"$\frac{\partial \phi}{\partial \tilde{x}}$")
+# plt.ylim((0.0,1.0))
+plt.tight_layout()
+
+#Plot IFT
+fig3 = plt.figure(num=3)
+plt.plot(t_list,IFT_list)
+plt.xlabel(r"$\tilde{t}$")
+plt.ylabel(r"$\frac{\gamma}{R_{G} \rho_{m}RT}$")
+plt.tight_layout()
+
+#Plot Solution at final time
+fig4 = plt.figure(num=4)
 plt.plot(x_np,phi_vals_np)
 plt.xlabel(r"$\tilde{x}$")
 plt.ylabel(r"$\phi$")
-plt.ylim((0.0,1.0))
+# plt.ylim((0.0,1.0))
 plt.tight_layout()
+
+
 
 
 plt.show()
