@@ -6,11 +6,14 @@ using Krylov
 using Trapz
 using IterativeSolvers
 using LaTeXStrings
+using Random
+
+Random.seed!(1234)
 
 
 function impliciteuler(chi,N1,N2,dx,dt)
     L = 4.0
-    tf = 50.0
+    tf = 20.0
     nx = Int(L/dx) + 1
     x = range(0,L,nx)
     dt = dt         # Time step size
@@ -20,7 +23,7 @@ function impliciteuler(chi,N1,N2,dx,dt)
 
     # Initial condition: small random perturbation around c0
     c0 = 0.5
-    c = c0 .+ 0.05 * (rand(nx) .- 0.5)
+    c = c0 .+ 0.02 * (rand(nx) .- 0.5)
 
     # Initialize arrays to store results
     c_max = zeros(nt)
@@ -56,7 +59,6 @@ function impliciteuler(chi,N1,N2,dx,dt)
         nx = length(c_new)
  
         # Ensure c_new stays within (0,1)
-        # c_work = clamp.(c_new, 1e-6, 1 .- 1e-6)
         c_work = c_new
 
         # Compute mu_new
@@ -148,9 +150,6 @@ function impliciteuler(chi,N1,N2,dx,dt)
         end
     end
 
-    # Save the animation
-    # gif(anim, "cahn_hilliard_animation.gif", fps = 30)
-
     time = (1:nt)*dt
 
     # Return the final concentration profile
@@ -159,19 +158,36 @@ function impliciteuler(chi,N1,N2,dx,dt)
 end
 
 # Run the main function
-c_final, c_max, c_min, c_avg, energy, time = impliciteuler(3.0, 1.0, 1.0, 0.05, 0.05)
+c_final1, c_max1, c_min1, c_avg1, energy1, time1 = impliciteuler(6.0, 1.0, 1.0, 0.1, 0.05)
+c_final2, c_max2, c_min2, c_avg2, energy2, time2 = impliciteuler(6.0, 1.0, 1.0, 0.05, 0.05)
+c_final3, c_max3, c_min3, c_avg3, energy3, time3 = impliciteuler(6.0, 1.0, 1.0, 0.02, 0.05)
+c_final4, c_max4, c_min4, c_avg4, energy4, time4 = impliciteuler(6.0, 1.0, 1.0, 0.01, 0.05)
 
 # Plot max, min, and average concentrations over time
-# p1 = plot(time, c_max, ylabel = L"\max(\phi)", xlabel = "Time", label="",color=:blue)
-# plot!(p1,time, c_min, right_ylabel = L"\min(\phi)",color = :red, yaxis = :right,label="")
-# plot!(p1, size=(600, 600), 
-#     tickfont=Plots.font("Computer Modern", 12), grid=false,
-#     legendfont=Plots.font("Computer Modern",8),dpi=300)
+p1 = plot(time1, c_max1, ylabel = L"\max(\phi)", xlabel = L"\textrm{Time}", label=L"\Delta t = 0.1, \Delta x = 0.05",color=:blue,y_guidefontcolor=:blue,y_foreground_color_axis=:blue,y_foreground_color_text=:blue,y_foreground_color_border=:blue)
+plot!(p1,time2,c_max2, label=L"\Delta t = 0.1, \Delta x = 0.05",color=:blue, linestyle=:dash)
+plot!(p1,time3,c_max3, label=L"\Delta t = 0.1, \Delta x = 0.01",color=:blue, linestyle=:dot)
+plot!(p1,time4,c_max4, label=L"\Delta t = 0.1, \Delta x = 0.005",color=:blue, linestyle=:dashdot)
+ylims!(p1,0,1)
+axis1 = twinx(p1)
+ylims!(axis1,0,1)
+plot!(axis1,time1, c_min1, ylabel = L"\min(\phi)",color = :red,label="",y_guidefontcolor=:red,y_foreground_color_axis=:red,y_foreground_color_text=:red,y_foreground_color_border=:red)
+plot!(axis1,time2,c_min2,color = :red,linestyle=:dash,label="")
+plot!(axis1,time3,c_min3,color = :red,linestyle=:dot,label="")
+plot!(axis1,time4,c_min4,color = :red,linestyle=:dashdot,label="")
 
-p2 = plot(time, c_avg, ylabel = L"\bar{\phi}", xlabel = L"\textrm{Time}", label="",color=:blue)
-ylims!=(p2,0,1)
+p2 = plot(time1, c_avg1, ylabel = L"\bar{\phi}", xlabel = L"\textrm{Time}", label="",color=:blue,y_guidefontcolor=:blue,y_foreground_color_axis=:blue,y_foreground_color_text=:blue,y_foreground_color_border=:blue)
+plot!(p2,time2,c_avg2,color=:blue, linestyle=:dash,label="")
+plot!(p2,time3,c_avg3,color=:blue, linestyle=:dot,label="")
+plot!(p2,time4,c_avg4,color=:blue, linestyle=:dashdot,label="")
+ylims!(p2,0,1)
 axis2 = twinx(p2)
-plot!(axis2,time, energy, ylabel = L"\textrm{Energy}",color = :red, label="")
-plot!(p2, size=(600, 600), 
+plot!(axis2,time1, energy1, ylabel = L"\textrm{Energy}",color = :red, label="",y_guidefontcolor=:red,y_foreground_color_axis=:red,y_foreground_color_text=:red,y_foreground_color_border=:red)
+plot!(axis2,time2,energy2,color=:red, linestyle=:dash,label="")
+plot!(axis2,time3,energy3,color=:red, linestyle=:dot,label="")
+plot!(axis2,time4,energy4,color=:red, linestyle=:dashdot,label="")
+
+plot!(p1,p2,layout=(1,2), size=(800, 400), 
     tickfont=Plots.font("Computer Modern", 12), grid=false,
-    legendfont=Plots.font("Computer Modern",8),dpi=300)
+    legendfont=Plots.font("Computer Modern",8),dpi=300, 
+    bottom_margin = 3Plots.mm, left_margin = 3Plots.mm, right_margin=3Plots.mm, legend=(0.55,0.5))

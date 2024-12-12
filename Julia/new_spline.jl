@@ -4,6 +4,12 @@ using Statistics
 # using Dierckx
 using BSplineKit
 
+"""
+This script is used to generate the following figures: 
+1. spline_plot_bsplinekit.png 
+2. spline_error_bspline.png
+"""
+
 
 @recipe function f(::Type{Val{:samplemarkers}}, x, y, z; step = 100)
     n = length(y)
@@ -98,7 +104,7 @@ f1, df1 = spline_generator(50,1,1,100)
 f2, df2 = spline_generator(1,100,50,100)
 
 p1 = plot(legend=:bottom, 
-grid=false,xlabel=L"\phi", ylabel=L"f")
+grid=false,xlabel=L"\phi_{1}", ylabel=L"f")
 #Plot Analytical 
 plot!(p1,phi_vals,fh.(phi_vals,50,1,1),label="",lw=2,linecolor="black",alpha=1.0,seriestype=:samplemarkers,m = (5, :white, stroke(1, :blue)))
 plot!(p1,phi_vals,fh.(phi_vals,1,100,50),label="",lw=2,linecolor="black",alpha=1.0,seriestype=:samplemarkers,)
@@ -108,11 +114,11 @@ plot!(p1,phi_vals,f2.(phi_vals),label="",linecolor="red",linestyle=:dot,linewidt
 
 #Plot df
 p2 = plot(legend=:bottomleft, size=(500, 500),
-grid=false,xlabel=L"\phi", ylabel=L"\frac{\partial f}{\partial \phi}")
-plot!(p2,phi_vals,fh_deriv.(phi_vals,50,1,1),label="Analytical, "*L"\chi=50, N_{1}=N_{2} = 1",lw=2,linecolor="black",alpha=1.0,seriestype=:samplemarkers,m = (5, :white, stroke(1, :blue)))
-plot!(p2,phi_vals,fh_deriv.(phi_vals,1,100,50),label="Analytical, "*L"\chi=10, N_{1}= 100, N_{2} = 1",lw=2,linecolor="black",alpha=1.0,seriestype=:samplemarkers,)
+grid=false,xlabel=L"\phi_{1}", ylabel=L"\frac{\partial f}{\partial \phi_{1}}")
+plot!(p2,phi_vals,fh_deriv.(phi_vals,50,1,1),label="Analytical, "*L"\chi_{12}=50, x_{1}=x_{2} = 1",lw=2,linecolor="black",alpha=1.0,seriestype=:samplemarkers,m = (5, :white, stroke(1, :blue)))
+plot!(p2,phi_vals,fh_deriv.(phi_vals,1,100,50),label="Analytical, "*L"\chi_{12}=10, x_{1}= 100, x_{2} = 1",lw=2,linecolor="black",alpha=1.0,seriestype=:samplemarkers,)
 
-plot!(p2,phi_vals,df1.(phi_vals),label="Spline, "*L"n=100",linecolor="red",linestyle=:dot,linewidth=2,alpha=0.5)
+plot!(p2,phi_vals,df1.(phi_vals),label="Spline, "*L"m=100",linecolor="red",linestyle=:dot,linewidth=2,alpha=0.5)
 plot!(p2,phi_vals,df2.(phi_vals),label="",linecolor="red",linestyle=:dot,linewidth=2,alpha=0.5)
 
 
@@ -121,62 +127,62 @@ plot(p1,p2, layout= (1,2), size=(800, 400),
     legendfont=Plots.font("Computer Modern",7),dpi=300,
     bottom_margin = 3Plots.mm, left_margin = 3Plots.mm, right_margin=3Plots.mm
     )
-# # savefig("./spline_plot_bsplinekit.png")
+# savefig("./spline_plot_bsplinekit.png")
 
 
 ### Plot RMSE
-# knots_values = [10,20,25,40,50,75,100,150,200]
-# rmse_f = zeros(length(knots_values))
-# mae_f = zeros(length(knots_values))
+knots_values = [10,20,25,40,50,75,100,150,200]
+rmse_f = zeros(length(knots_values))
+mae_f = zeros(length(knots_values))
 
-# rmse_df = zeros(length(knots_values))
-# mae_df = zeros(length(knots_values))
+rmse_df = zeros(length(knots_values))
+mae_df = zeros(length(knots_values))
 
-# rmse_df_int = zeros(length(knots_values))
-# mae_df_int = zeros(length(knots_values))
+rmse_df_int = zeros(length(knots_values))
+mae_df_int = zeros(length(knots_values))
 
 
-# for j in 1:length(knots_values)
-#     knots = knots_values[j]
+for j in 1:length(knots_values)
+    knots = knots_values[j]
 
-#     phi_test_ = range(1e-16,1-1e-16,100)
-#     phi_test_int = range(1e-2,1-1e-2,100)
+    phi_test_ = range(1e-16,1-1e-16,100)
+    phi_test_int = range(1e-2,1-1e-2,100)
     
-#     f_test, df_test = spline_generator(50,1,1,knots)
+    f_test, df_test = spline_generator(50,1,1,knots)
 
-#     f_ana_vals = fh.(phi_test_,50,1,1)
-#     df_ana_vals = fh_deriv.(phi_test_,50,1,1)
+    f_ana_vals = fh.(phi_test_,50,1,1)
+    df_ana_vals = fh_deriv.(phi_test_,50,1,1)
 
-#     df_ana_int_vals = fh_deriv.(phi_test_int,50,1,1)
+    df_ana_int_vals = fh_deriv.(phi_test_int,50,1,1)
 
-#     #Compute errors
-#     rmse_f[j] = sqrt(mean((f_test.(phi_test_).- f_ana_vals).^2))
-#     mae_f[j] = maximum(abs.(f_test.(phi_test_).- f_ana_vals))
+    #Compute errors
+    rmse_f[j] = sqrt(mean((f_test.(phi_test_).- f_ana_vals).^2))
+    mae_f[j] = maximum(abs.(f_test.(phi_test_).- f_ana_vals))
 
-#     rmse_df[j] = sqrt(mean((df_test.(phi_test_).- df_ana_vals).^2))
-#     mae_df[j] = maximum(abs.(df_test.(phi_test_).- df_ana_vals))
+    rmse_df[j] = sqrt(mean((df_test.(phi_test_).- df_ana_vals).^2))
+    mae_df[j] = maximum(abs.(df_test.(phi_test_).- df_ana_vals))
 
-#     rmse_df_int[j] = sqrt(mean((df_test.(phi_test_int).- df_ana_int_vals).^2))
-#     mae_df_int[j] = maximum(abs.(df_test.(phi_test_int).- df_ana_int_vals))
+    rmse_df_int[j] = sqrt(mean((df_test.(phi_test_int).- df_ana_int_vals).^2))
+    mae_df_int[j] = maximum(abs.(df_test.(phi_test_int).- df_ana_int_vals))
 
-# end
-
-
-# p3 = plot()
-# plot!(p3,knots_values,rmse_f,label=L"\textrm{RMSE}, f",color="black")
-# plot!(p3,knots_values,mae_f,label=L"\textrm{MAE}, f",linestyle=:dash,color="black")
-# plot!(p3,knots_values,rmse_df,label=L"\textrm{RMSE}, \frac{\partial f}{\partial \phi}",color="red")
-# plot!(p3,knots_values,mae_df,label=L"\textrm{MAE}, \frac{\partial f}{\partial \phi}",linestyle=:dash,color="red")
-# plot!(p3,knots_values,rmse_df_int,label=L"\textrm{RMSE, Interior}, \frac{\partial f}{\partial \phi}",color="blue")
-# plot!(p3,knots_values,mae_df_int,label=L"\textrm{MAE, Interior}, \frac{\partial f}{\partial \phi}",linestyle=:dash,color="blue")
+end
 
 
-# plot(p3,legend=:bottomleft, size=(500, 500),
-#     grid=false,xlabel=L"N", ylabel=L"\textrm{Error}",
-#     tickfont=Plots.font("Computer Modern", 10),
-#     legendfont=Plots.font("Computer Modern",7),dpi=300,
-#     xaxis=:log, yaxis=:log
-#     )
+p3 = plot()
+plot!(p3,knots_values,rmse_f,label=L"\textrm{RMSE}, f",color="black")
+plot!(p3,knots_values,mae_f,label=L"\textrm{MAE}, f",linestyle=:dash,color="black")
+plot!(p3,knots_values,rmse_df,label=L"\textrm{RMSE}, \frac{\partial f}{\partial \phi_{1}}",color="red")
+plot!(p3,knots_values,mae_df,label=L"\textrm{MAE}, \frac{\partial f}{\partial \phi_{1}}",linestyle=:dash,color="red")
+plot!(p3,knots_values,rmse_df_int,label=L"\textrm{RMSE, Interior}, \frac{\partial f}{\partial \phi_{1}}",color="blue")
+plot!(p3,knots_values,mae_df_int,label=L"\textrm{MAE, Interior}, \frac{\partial f}{\partial \phi_{1}}",linestyle=:dash,color="blue")
+
+
+plot(p3,legend=:bottomleft, size=(500, 500),
+    grid=false,xlabel=L"m", ylabel=L"\textrm{Error}",
+    tickfont=Plots.font("Computer Modern", 10),
+    legendfont=Plots.font("Computer Modern",7),dpi=300,
+    xaxis=:log, yaxis=:log
+    )
 
 
 

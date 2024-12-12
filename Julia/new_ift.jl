@@ -176,18 +176,21 @@ ift_vals_ch_spline2 = [0.0005518920998109167,0.008873582373262376,0.013865008488
 
 chicrit(N1,N2) = sqrt((N1^2) + (N2^2))/(2*N1*N2)
 
-p = plot()
-plot!(p,chi_vals1./2,ift_vals_analytical1,label=L"\textrm{Analytical (Full)}, N_{1} = N_{2} = 1",color="black")
-plot!(p,chi_vals1./2,ift_vals_spline1,label=L"\textrm{Analytical (Spline)}, N_{1} = N_{2} = 1",linestyle=:dash,color="red")
-plot!(p,chi_vals_ch_analytical1./2,ift_vals_ch_analytical1,label=L"\textrm{Simulation (Full)}, N_{1} = N_{2} = 1",seriestype=:scatter,markershape=:diamond, color="black",markeralpha=0.5)
-plot!(p,chi_vals_ch_spline1./2,ift_vals_ch_spline1,label=L"\textrm{Simulation (Spline)}, N_{1} = N_{2} = 1",seriestype=:scatter,markershape=:+,color="black",markersize=7)
-
-plot!(p,chi_vals2./(chicrit(100,50)),ift_vals_analytical2,label=L"\textrm{Analytical}, N_{1} = 100, N_{2} = 50",color="blue")
-plot!(p,chi_vals2./(chicrit(100,50)),ift_vals_spline2,label=L"\textrm{Spline}, N_{1} = 100, N_{2} = 50",linestyle=:dashdot,color="red")
-plot!(p,chi_vals_ch_analytical2./chicrit(100,50),ift_vals_ch_analytical2,label=L"\textrm{Simulation (Full)}, N_{1} = 100, N_{2} = 50",seriestype=:scatter,markershape=:diamond, color="blue",markeralpha=0.5)
-plot!(p,chi_vals_ch_spline2./chicrit(100,50),ift_vals_ch_spline2,label=L"\textrm{Simulation (Spline)}, N_{1} = 100, N_{2} = 50",seriestype=:scatter,markershape=:+,color="blue",markersize=7)
-plot(p,legend=:topleft, size=(500, 500),
-    grid=false,xlabel=L"\chi_{12}/\chi_{C}", ylabel=L"\textrm{Scaled \ Interfacial \ Tension} \ \tilde{\sigma}",
+p = plot(size=(600, 400),dpi=300,grid=false)
+plot!(p,legend=:topleft,
+    xlabel=L"\chi_{12}/\chi_{C}", ylabel=L"\textrm{Scaled \ Interfacial \ Tension} \ \tilde{\sigma}",
     tickfont=Plots.font("Computer Modern", 10),
-    legendfont=Plots.font("Computer Modern",8),dpi=300
+    legendfont=Plots.font("Computer Modern",8)
     )
+plot!(p,chi_vals1./2,ift_vals_analytical1,label=L"\textrm{Analytical (Full)}, x_{1} = x_{2} = 1",color="black")
+plot!(p,chi_vals1./2,ift_vals_spline1,label=L"\textrm{Analytical (Spline)}, x_{1} = x_{2} = 1",linestyle=:dash,color="red")
+plot!(p,chi_vals_ch_analytical1./2,ift_vals_ch_analytical1,label=L"\textrm{Simulation (Full)}, x_{1} = x_{2} = 1",seriestype=:scatter,markershape=:diamond, color="black",markeralpha=0.5)
+plot!(p,chi_vals_ch_spline1./2,ift_vals_ch_spline1,label=L"\textrm{Simulation (Spline)}, x_{1} = x_{2} = 1",seriestype=:scatter,markershape=:+,color="black",markersize=7)
+
+plot!(p,chi_vals2./(chicrit(100,50)),ift_vals_analytical2,label=L"\textrm{Analytical (Full)}, x_{1} = 100, x_{2} = 50",color="blue")
+plot!(p,chi_vals2./(chicrit(100,50)),ift_vals_spline2,label=L"\textrm{Analytical (Spline)}, x_{1} = 100, x_{2} = 50",linestyle=:dashdot,color="red")
+plot!(p,chi_vals_ch_analytical2./chicrit(100,50),ift_vals_ch_analytical2,label=L"\textrm{Simulation (Full)}, x_{1} = 100, x_{2} = 50",seriestype=:scatter,markershape=:diamond, color="blue",markeralpha=0.5)
+plot!(p,chi_vals_ch_spline2./chicrit(100,50),ift_vals_ch_spline2,label=L"\textrm{Simulation (Spline)}, x_{1} = 100, x_{2} = 50",seriestype=:scatter,markershape=:+,color="blue",markersize=7)
+
+
+# savefig(p,"./interfacial_tension.png")
