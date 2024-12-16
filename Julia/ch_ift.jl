@@ -82,7 +82,7 @@ function CH(ϕ, dx, params)
     end
     mobility(ϕ) = ϕ .* (1 .- ϕ)
 
-    function M_func_half(ϕ₁,ϕ₂,option=1)
+    function M_func_half(ϕ₁,ϕ₂,option=2)
         if option == 1
             M_func = 0.5 .*(mobility.(ϕ₁) .+ mobility.(ϕ₂))
         elseif option == 2

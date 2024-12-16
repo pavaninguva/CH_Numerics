@@ -15,8 +15,7 @@ using BSplineKit
 """
 This code is used to generate the csv files containing the 
 data in:
-1. spinodal_times_impliciteuler1d.png
-2. 
+spinodal_times.png
 """
 
 Random.seed!(1234)  # For reproducibility
@@ -273,12 +272,12 @@ for chi in chi_values
     println("phiA = $phiA, phiB = $phiB")
 
   
-    # Run simulations 5 times
+    # Run simulations 10 times
     taus = []
     for i in 1:10
         println("  Run $i")
         tau = impliciteuler(chi, N1, N2, dx, dt, phiA, phiB)
-        println("    Tau = $tau")
+        println("Tau = $tau")
         push!(taus, tau)
     end
 
