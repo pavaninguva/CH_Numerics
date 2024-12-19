@@ -26,8 +26,6 @@ function spline_generator(χ,N1,N2,knots)
     push!(f_vals,0)
 
     
-    # spline = Spline1D(phi_vals,f_vals)
-    # d_spline(phi) = Dierckx.derivative(spline,phi)
     spline = BSplineKit.interpolate(phi_vals, f_vals,BSplineOrder(4))
     d_spline = Derivative(1)*spline
 

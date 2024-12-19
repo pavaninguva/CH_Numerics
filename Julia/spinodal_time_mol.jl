@@ -471,7 +471,7 @@ Make Big Plot
 """
 
 # Combine all plots into one figure
-p_all = plot(p1, p2, p3, p4, layout=4, size=(1000, 1000))
+p_all = plot(p1, p2, p3, p4, layout=4, size=(1000, 500))
 savefig(p_all,"spinodal_times.png")
 
 

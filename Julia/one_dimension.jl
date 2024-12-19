@@ -7,6 +7,7 @@ using Trapz
 using IterativeSolvers
 using LaTeXStrings
 using Random
+using Statistics
 
 Random.seed!(1234)
 
@@ -121,7 +122,7 @@ function impliciteuler(chi,N1,N2,dx,dt)
         #Compute stuff for Plotting
         
         #Mass conservation
-        c_avg[n] = (1/L)*trapz(x,c)
+        c_avg[n] = mean(c)
 
         #Max and min Values
         c_max[n] = maximum(c)
