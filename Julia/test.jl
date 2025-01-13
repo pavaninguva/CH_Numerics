@@ -249,7 +249,7 @@ function residual!(F, c_new, p)
 end
 
 function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
-    L = 20.0
+    L = 10.0
     tf = 5
     nx = Int(L / dx) + 1
     ny = nx  # Assuming square domain
@@ -339,7 +339,7 @@ function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
 end
 
 # Run the main function
-c_final, c_max, c_min, c_avg, energy, time_vals = impliciteuler_2d(18.0,1.0,1.0,0.5,0.001,"analytical")
+c_final, c_max, c_min, c_avg, energy, time_vals = impliciteuler_2d(18.0,1.0,1.0,0.2,0.1,"spline")
 
 # Plot max, min, and average concentrations over time
 plt = plot(time_vals, c_max, label = "Max(ϕ)", xlabel = "Time", ylabel = "Concentration",

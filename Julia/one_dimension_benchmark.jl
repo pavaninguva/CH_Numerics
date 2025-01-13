@@ -12,6 +12,7 @@ using LaTeXStrings
 using DifferentialEquations
 using CSV
 using DataFrames
+using Plots.PlotMeasures
 
 """
 This script tests the ability of the solvers to converge 
@@ -235,12 +236,12 @@ function param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method
         for (j, dx) in enumerate(dx_values)
             key = (chi,dx)
             if haskey(results, key)
-                println("Reusing result for chi=$chi, dx=$dx, energy_method=$energy_method")
+                println("Reusing result for chi=$chi, dx=$dx, energy_method=$energy_method, timestepping=BDF")
                 min_dt_matrix[i, j] = results[key]
                 continue  # Skip to the next parameter combination
             end
 
-            println("Running simulation for chi=$chi, dx=$dx, energy_method=$energy_method")
+            println("Running simulation for chi=$chi, dx=$dx, energy_method=$energy_method, timestepping=BDF")
             sol = nothing
             try
                 sol = mol_solver(chi, N1, N2, dx, energy_method)
@@ -289,11 +290,11 @@ function param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method
 end
 
 
-chi_values = 8:2:16  
-dx_values = [0.04,0.05,0.08,0.1,0.2] 
+chi_values = 6:1:20  
+dx_values = [0.02,0.025,0.04,0.05,0.08,0.1,0.2] 
 
-min_dt_matrix_spline = param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline",results_file="./1d_dt_ie_spline.csv")
-min_dt_matrix_analytical = param_sweep_min_dt(chi_values,dx_values,N1=1.0,N2=1.0,energy_method="analytical",results_file="./1d_dt_ie_ana.csv")
+min_dt_matrix_spline = param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline",results_file="./1d_dt_bdf_spline.csv")
+min_dt_matrix_analytical = param_sweep_min_dt(chi_values,dx_values,N1=1.0,N2=1.0,energy_method="analytical",results_file="./1d_dt_bdf_ana.csv")
 
 log_min_dt_spline = log10.(min_dt_matrix_spline)
 finite_values_spline = log_min_dt_spline[.!isnan.(log_min_dt_spline)]
@@ -324,6 +325,10 @@ p2= heatmap(dx_values, chi_values, log_min_dt_spline,
     title="TRBDF2, Spline",
     titlefont=Plots.font("Computer Modern",12),size=(500,500))
 
+"""
+Running Backward Euler
+"""
+
 
 function run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="analytical", dt_start=1.0, dt_min=1e-4,results_file)
 
@@ -353,7 +358,7 @@ function run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="anal
     function find_largest_stable_dt(chi, N1, N2, dx; energy_method="analytical", dt_start=1.0, dt_min=1e-4)
         dt = dt_start
         while dt >= dt_min
-            println("Testing chi=$chi, dx=$dx with dt=$dt,energy_method=$energy_method")
+            println("Testing chi=$chi, dx=$dx with dt=$dt,energy_method=$energy_method, Timestepping = Backward Euler")
             success = try_simulation(chi, N1, N2, dx, dt, energy_method)
             if success
                 # If successful, we found a stable dt
@@ -378,7 +383,7 @@ function run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="anal
             key = (chi, dx)
             # Reuse result if available
             if haskey(results, key)
-                println("Reusing result for chi=$chi, dx=$dx, energy_method=$energy_method")
+                println("Reusing result for chi=$chi, dx=$dx, energy_method=$energy_method, Timestepping = Backward Euler")
                 largest_stable_dt[i, j] = results[key]
                 continue
             end
@@ -405,7 +410,7 @@ function run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="anal
     return largest_stable_dt
 end
 
-dt_vals_backwards_euler_ana = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="analytical", dt_start=0.25, dt_min=1e-4,results_file="./1d_dt_bdf_ana.csv")
+dt_vals_backwards_euler_ana = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="analytical", dt_start=0.25, dt_min=1e-4,results_file="./1d_dt_ie_ana.csv")
 log_dt_be_ana = log10.(dt_vals_backwards_euler_ana)
 finite_values_be_ana = log_dt_be_ana[.!isnan.(log_dt_be_ana)]
 cmin_be_ana = minimum(finite_values_be_ana)
@@ -421,8 +426,7 @@ p3= heatmap(dx_values, chi_values, log_dt_be_ana,
     titlefont=Plots.font("Computer Modern",12),size=(500,500))
 
 
-dt_vals_backwards_euler_spline = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline", dt_start=0.25, dt_min=1e-4,results_file="./1d_dt_bdf_spline.csv")
-println(dt_vals_backwards_euler_spline)
+dt_vals_backwards_euler_spline = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline", dt_start=0.25, dt_min=1e-4,results_file="./1d_dt_ie_spline.csv")
 log_dt_be_spline = log10.(dt_vals_backwards_euler_spline)
 finite_values_be_spline = log_dt_be_spline[.!isnan.(log_dt_be_spline)]
 cmin_be_spline = minimum(finite_values_be_spline)
@@ -438,5 +442,5 @@ p4= heatmap(dx_values, chi_values, log_dt_be_spline,
     titlefont=Plots.font("Computer Modern",12),size=(500,500))
 
 
-p_all = plot(p1,p2,p3,p4, layout=4, size=(1200,1200), dpi=300)
+p_all = plot(p1,p2,p3,p4, layout=4, size=(1400,1400), dpi=300, leftmargin=3mm)
 savefig(p_all,"1d_benchmark.png")
