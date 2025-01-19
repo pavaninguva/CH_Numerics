@@ -7,6 +7,8 @@ using Trapz
 using IterativeSolvers
 using Random
 using Statistics
+using BSplineKit
+using Sundials
 
 Random.seed!(1234)
 
@@ -22,7 +24,6 @@ function dfdphi_ana(phi, chi, N1, N2)
 end
 
 function spline_generator(χ,N1,N2,knots=100)
-
     #Def log terms 
     log_terms(ϕ) =  (ϕ./N1).*log.(ϕ) .+ ((1 .-ϕ)./N2).*log.(1 .-ϕ)
 
@@ -31,21 +32,14 @@ function spline_generator(χ,N1,N2,knots=100)
         return points
     end
     
-    phi_vals_ = collect(tanh_sinh_spacing(knots-4,14))
+    phi_vals_ = collect(tanh_sinh_spacing(knots-2,14))
     f_vals_ = log_terms(phi_vals_)
 
-    # Add boundary and near-boundary points
-    zero_near = 1e-16
-    one_near = 1 - 1e-16
-
-    phi_vals = [0.0; zero_near; phi_vals_; one_near; 1.0]
-    f_vals = [0.0; log_terms(zero_near); f_vals_; log_terms(one_near); 0.0]
-
-    # #Append boundary values
-    # phi_vals = pushfirst!(phi_vals_,0)
-    # f_vals = pushfirst!(f_vals_,0)
-    # push!(phi_vals,1)
-    # push!(f_vals,0)
+    #Append boundary values
+    phi_vals = pushfirst!(phi_vals_,0)
+    f_vals = pushfirst!(f_vals_,0)
+    push!(phi_vals,1)
+    push!(f_vals,0)
 
     spline = BSplineKit.interpolate(phi_vals, f_vals,BSplineOrder(4))
     d_spline = Derivative(1)*spline
@@ -69,23 +63,17 @@ function residual!(F, c_new, p)
     nx, ny = p.nx, p.ny
     energy_method= p.energy_method
 
-    spline = spline_generator(chi, N1, N2)
-    if energy_method == "analytical"
-        dfdphi = phi -> dfdphi_ana(phi,chi,N1, N2)
-    else
-        dfdphi = phi -> spline.(phi)
-    end
+    # spline = spline_generator(chi, N1, N2)
+    # # if energy_method == "analytical"
+    # #     dfdphi = phi -> dfdphi_ana(phi,chi,N1, N2)
+    # # else
+    # dfdphi = phi -> spline.(phi)
+    # # end
 
+    dfdphi = phi -> dfdphi_ana(phi,chi,N1,N2)
 
     # Compute mu_new
     mu_new = similar(c_new)
-
-    # Helper function to calculate chemical potential
-    function compute_mu(i, j)
-        laplacian_c = (c_new[i+1,j] - 2.0 * c_new[i,j] + c_new[i-1,j]) / dx^2 +
-                      (c_new[i,j+1] - 2.0 * c_new[i,j] + c_new[i,j-1]) / dy^2
-        return dfdphi(c_new[i,j]) - kappa * laplacian_c
-    end
 
     function M_func(phi)
         return phi .* (1 .- phi)
@@ -98,136 +86,122 @@ function residual!(F, c_new, p)
     # Compute mu_new for all nodes
     for i in 1:nx
         for j in 1:ny
-            if i == 1 || i == nx || j == 1 || j == ny
-                # Boundary nodes
                 if i == 1 && j > 1 && j < ny
-                    laplacian_c = (2.0 * (c_new[2,j] - c_new[1,j])) / dx^2 +
-                                  (c_new[1,j+1] - 2.0 * c_new[1,j] + c_new[1,j-1]) / dy^2
+                    laplacian_c = ((2.0 * (c_new[2,j] - c_new[1,j])) / dx^2) + (c_new[1,j+1] - 2.0 * c_new[1,j] + c_new[1,j-1]) / dy^2
                 elseif i == nx && j > 1 && j < ny
-                    laplacian_c = (2.0 * (c_new[nx-1,j] - c_new[nx,j])) / dx^2 +
-                                  (c_new[nx,j+1] - 2.0 * c_new[nx,j] + c_new[nx,j-1]) / dy^2
+                    laplacian_c = ((2.0 * (c_new[nx-1,j] - c_new[nx,j])) / dx^2) + (c_new[nx,j+1] - 2.0 * c_new[nx,j] + c_new[nx,j-1]) / dy^2
                 elseif j == 1 && i > 1 && i < nx
-                    laplacian_c = (c_new[i+1,1] - 2.0 * c_new[i,1] + c_new[i-1,1]) / dx^2 +
-                                  (2.0 * (c_new[i,2] - c_new[i,1])) / dy^2
+                    laplacian_c = ((c_new[i+1,1] - 2.0 * c_new[i,1] + c_new[i-1,1]) / dx^2) + (2.0 * (c_new[i,2] - c_new[i,1])) / dy^2
                 elseif j == ny && i > 1 && i < nx
-                    laplacian_c = (c_new[i+1,ny] - 2.0 * c_new[i,ny] + c_new[i-1,ny]) / dx^2 +
-                                  (2.0 * (c_new[i,ny-1] - c_new[i,ny])) / dy^2
+                    laplacian_c = ((c_new[i+1,ny] - 2.0 * c_new[i,ny] + c_new[i-1,ny]) / dx^2) + (2.0 * (c_new[i,ny-1] - c_new[i,ny])) / dy^2
                 elseif i == 1 && j == 1
-                    laplacian_c = (2.0 * (c_new[2,1] - c_new[1,1])) / dx^2 +
-                                  (2.0 * (c_new[1,2] - c_new[1,1])) / dy^2
+                    laplacian_c = ((2.0 * (c_new[2,1] - c_new[1,1])) / dx^2) + (2.0 * (c_new[1,2] - c_new[1,1])) / dy^2
                 elseif i == nx && j == 1
-                    laplacian_c = (2.0 * (c_new[nx-1,1] - c_new[nx,1])) / dx^2 +
-                                  (2.0 * (c_new[nx,2] - c_new[nx,1])) / dy^2
+                    laplacian_c = ((2.0 * (c_new[nx-1,1] - c_new[nx,1])) / dx^2) + (2.0 * (c_new[nx,2] - c_new[nx,1])) / dy^2
                 elseif i == 1 && j == ny
-                    laplacian_c = (2.0 * (c_new[2,ny] - c_new[1,ny])) / dx^2 +
-                                  (2.0 * (c_new[1,ny-1] - c_new[1,ny])) / dy^2
+                    laplacian_c = ((2.0 * (c_new[2,ny] - c_new[1,ny])) / dx^2) + (2.0 * (c_new[1,ny-1] - c_new[1,ny])) / dy^2
                 elseif i == nx && j == ny
-                    laplacian_c = (2.0 * (c_new[nx-1,ny] - c_new[nx,ny])) / dx^2 +
-                                  (2.0 * (c_new[nx,ny-1] - c_new[nx,ny])) / dy^2
+                    laplacian_c = ((2.0 * (c_new[nx-1,ny] - c_new[nx,ny])) / dx^2) + (2.0 * (c_new[nx,ny-1] - c_new[nx,ny])) / dy^2
+                else
+                    # Interior nodes
+                    laplacian_c = (c_new[i+1,ny] - 2.0 * c_new[i,ny] + c_new[i-1,ny]) / dx^2 + (c_new[nx,j+1] - 2.0 * c_new[nx,j] + c_new[nx,j-1]) / dy^2
                 end
-
                 mu_new[i,j] = dfdphi(c_new[i,j]) - kappa*laplacian_c
-            else
-                # Interior nodes
-                mu_new[i,j] = compute_mu(i, j)
             end
         end
-    end
 
     # Compute residuals F
     for i in 1:nx
         for j in 1:ny
-            if i == 1 || i == nx || j == 1 || j == ny
-                # Boundary nodes: Update based on ghost node approach
-                if i == 1 && j > 1 && j < ny
-                    M_iphalf = M_func_half(c_new[1,j], c_new[2,j])
-                    M_jphalf = M_func_half(c_new[1,j], c_new[1,j+1])
-                    M_jmhalf = M_func_half(c_new[1,j], c_new[1,j-1])
+            if i == 1 && j > 1 && j < ny
+                M_iphalf = M_func_half(c_new[1,j], c_new[2,j])
+                M_jphalf = M_func_half(c_new[1,j], c_new[1,j+1])
+                M_jmhalf = M_func_half(c_new[1,j], c_new[1,j-1])
 
-                    Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,j] - mu_new[1,j]) / dx^2
-                    Jy_jphalf = M_jphalf * (mu_new[1,j+1] - mu_new[1,j]) / dy^2
-                    Jy_jmhalf = M_jmhalf * (mu_new[1,j] - mu_new[1,j-1]) / dy^2
+                Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,j] - mu_new[1,j]) / dx^2
+                Jy_jphalf = M_jphalf * (mu_new[1,j+1] - mu_new[1,j]) / dy^2
+                Jy_jmhalf = M_jmhalf * (mu_new[1,j] - mu_new[1,j-1]) / dy^2
 
-                    div_J = Jx_iphalf + (Jy_jphalf - Jy_jmhalf)
+                div_J = Jx_iphalf + (Jy_jphalf - Jy_jmhalf)
 
-                    F[1,j] = (c_new[1,j] - c_old[1,j]) / dt - div_J
-                elseif i == nx && j > 1 && j < ny
-                    M_imhalf = M_func_half(c_new[nx,j], c_new[nx-1,j])
-                    M_jphalf = M_func_half(c_new[nx,j], c_new[nx,j+1])
-                    M_jmhalf = M_func_half(c_new[nx,j], c_new[nx,j-1])
+                F[1,j] = (c_new[1,j] - c_old[1,j]) / dt - div_J
+            elseif i == nx && j > 1 && j < ny
+                M_imhalf = M_func_half(c_new[nx,j], c_new[nx-1,j])
+                M_jphalf = M_func_half(c_new[nx,j], c_new[nx,j+1])
+                M_jmhalf = M_func_half(c_new[nx,j], c_new[nx,j-1])
 
-                    Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,j] - mu_new[nx,j]) / dx^2
-                    Jy_jphalf = M_jphalf * (mu_new[nx,j+1] - mu_new[nx,j]) / dy^2
-                    Jy_jmhalf = M_jmhalf * (mu_new[nx,j] - mu_new[nx,j-1]) / dy^2
+                Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,j] - mu_new[nx,j]) / dx^2
+                Jy_jphalf = M_jphalf * (mu_new[nx,j+1] - mu_new[nx,j]) / dy^2
+                Jy_jmhalf = M_jmhalf * (mu_new[nx,j] - mu_new[nx,j-1]) / dy^2
 
-                    div_J = Jx_imhalf + (Jy_jphalf - Jy_jmhalf)
+                div_J = Jx_imhalf + (Jy_jphalf - Jy_jmhalf)
 
-                    F[nx,j] = (c_new[nx,j] - c_old[nx,j]) / dt - div_J
-                elseif j == 1 && i > 1 && i < nx
-                    M_iphalf = M_func_half(c_new[i,1], c_new[i+1,1])
-                    M_imhalf = M_func_half(c_new[i,1], c_new[i-1,1])
-                    M_jphalf = M_func_half(c_new[i,1], c_new[i,2])
+                F[nx,j] = (c_new[nx,j] - c_old[nx,j]) / dt - div_J
+            elseif j == 1 && i > 1 && i < nx
+                M_iphalf = M_func_half(c_new[i,1], c_new[i+1,1])
+                M_imhalf = M_func_half(c_new[i,1], c_new[i-1,1])
+                M_jphalf = M_func_half(c_new[i,1], c_new[i,2])
 
-                    Jx_iphalf = M_iphalf * (mu_new[i+1,1] - mu_new[i,1]) / dx^2
-                    Jx_imhalf = M_imhalf * (mu_new[i,1] - mu_new[i-1,1]) / dx^2
-                    Jy_jphalf = 2.0 * M_jphalf * (mu_new[i,2] - mu_new[i,1]) / dy^2
+                Jx_iphalf = M_iphalf * (mu_new[i+1,1] - mu_new[i,1]) / dx^2
+                Jx_imhalf = M_imhalf * (mu_new[i,1] - mu_new[i-1,1]) / dx^2
+                Jy_jphalf = 2.0 * M_jphalf * (mu_new[i,2] - mu_new[i,1]) / dy^2
 
-                    div_J = (Jx_iphalf - Jx_imhalf) + Jy_jphalf
+                div_J = (Jx_iphalf - Jx_imhalf) + Jy_jphalf
 
-                    F[i,1] = (c_new[i,1] - c_old[i,1]) / dt - div_J
-                elseif j == ny && i > 1 && i < nx
-                    M_iphalf = M_func_half(c_new[i,ny], c_new[i+1,ny])
-                    M_imhalf = M_func_half(c_new[i,ny], c_new[i-1,ny])
-                    M_jmhalf = M_func_half(c_new[i,ny], c_new[i,ny-1])
+                F[i,1] = (c_new[i,1] - c_old[i,1]) / dt - div_J
+            elseif j == ny && i > 1 && i < nx
+                M_iphalf = M_func_half(c_new[i,ny], c_new[i+1,ny])
+                M_imhalf = M_func_half(c_new[i,ny], c_new[i-1,ny])
+                M_jmhalf = M_func_half(c_new[i,ny], c_new[i,ny-1])
 
-                    Jx_iphalf = M_iphalf * (mu_new[i+1,ny] - mu_new[i,ny]) / dx^2
-                    Jx_imhalf = M_imhalf * (mu_new[i,ny] - mu_new[i-1,ny]) / dx^2
-                    Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[i,ny-1] - mu_new[i,ny]) / dy^2
+                Jx_iphalf = M_iphalf * (mu_new[i+1,ny] - mu_new[i,ny]) / dx^2
+                Jx_imhalf = M_imhalf * (mu_new[i,ny] - mu_new[i-1,ny]) / dx^2
+                Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[i,ny-1] - mu_new[i,ny]) / dy^2
 
-                    div_J = (Jx_iphalf - Jx_imhalf) + Jy_jmhalf
+                div_J = (Jx_iphalf - Jx_imhalf) + Jy_jmhalf
 
-                    F[i,ny] = (c_new[i,ny] - c_old[i,ny]) / dt - div_J
-                elseif i == 1 && j == 1
-                    M_iphalf = M_func_half(c_new[1,1], c_new[2,1])
-                    M_jphalf = M_func_half(c_new[1,1], c_new[1,2])
+                F[i,ny] = (c_new[i,ny] - c_old[i,ny]) / dt - div_J
+            elseif i == 1 && j == 1
+                M_iphalf = M_func_half(c_new[1,1], c_new[2,1])
+                M_jphalf = M_func_half(c_new[1,1], c_new[1,2])
 
-                    Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,1] - mu_new[1,1]) / dx^2
-                    Jy_jphalf = 2.0 * M_jphalf * (mu_new[1,2] - mu_new[1,1]) / dy^2
+                Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,1] - mu_new[1,1]) / dx^2
+                Jy_jphalf = 2.0 * M_jphalf * (mu_new[1,2] - mu_new[1,1]) / dy^2
 
-                    div_J = Jx_iphalf + Jy_jphalf
+                div_J = Jx_iphalf + Jy_jphalf
 
-                    F[1,1] = (c_new[1,1] - c_old[1,1]) / dt - div_J
-                elseif i == nx && j == 1
-                    M_imhalf = M_func_half(c_new[nx,1], c_new[nx-1,1])
-                    M_jphalf = M_func_half(c_new[nx,1], c_new[nx,2])
+                F[1,1] = (c_new[1,1] - c_old[1,1]) / dt - div_J
+            elseif i == nx && j == 1
+                M_imhalf = M_func_half(c_new[nx,1], c_new[nx-1,1])
+                M_jphalf = M_func_half(c_new[nx,1], c_new[nx,2])
 
-                    Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,1] - mu_new[nx,1]) / dx^2
-                    Jy_jphalf = 2.0 * M_jphalf * (mu_new[nx,2] - mu_new[nx,1]) / dy^2
+                Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,1] - mu_new[nx,1]) / dx^2
+                Jy_jphalf = 2.0 * M_jphalf * (mu_new[nx,2] - mu_new[nx,1]) / dy^2
 
-                    div_J = Jx_imhalf + Jy_jphalf
+                div_J = Jx_imhalf + Jy_jphalf
 
-                    F[nx,1] = (c_new[nx,1] - c_old[nx,1]) / dt - div_J
-                elseif i == 1 && j == ny
-                    M_iphalf = M_func_half(c_new[1,ny], c_new[2,ny])
-                    M_jmhalf = M_func_half(c_new[1,ny], c_new[1,ny-1])
+                F[nx,1] = (c_new[nx,1] - c_old[nx,1]) / dt - div_J
+            elseif i == 1 && j == ny
+                M_iphalf = M_func_half(c_new[1,ny], c_new[2,ny])
+                M_jmhalf = M_func_half(c_new[1,ny], c_new[1,ny-1])
 
-                    Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,ny] - mu_new[1,ny]) / dx^2
-                    Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[1,ny-1] - mu_new[1,ny]) / dy^2
+                Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,ny] - mu_new[1,ny]) / dx^2
+                Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[1,ny-1] - mu_new[1,ny]) / dy^2
 
-                    div_J = Jx_iphalf + Jy_jmhalf
+                div_J = Jx_iphalf + Jy_jmhalf
 
-                    F[1,ny] = (c_new[1,ny] - c_old[1,ny]) / dt - div_J
-                elseif i == nx && j == ny
-                    M_imhalf = M_func_half(c_new[nx,ny], c_new[nx-1,ny])
-                    M_jmhalf = M_func_half(c_new[nx,ny], c_new[nx,ny-1])
+                F[1,ny] = (c_new[1,ny] - c_old[1,ny]) / dt - div_J
+            elseif i == nx && j == ny
+                M_imhalf = M_func_half(c_new[nx,ny], c_new[nx-1,ny])
+                M_jmhalf = M_func_half(c_new[nx,ny], c_new[nx,ny-1])
 
-                    Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,ny] - mu_new[nx,ny]) / dx^2
-                    Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[nx,ny-1] - mu_new[nx,ny]) / dy^2
+                Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,ny] - mu_new[nx,ny]) / dx^2
+                Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[nx,ny-1] - mu_new[nx,ny]) / dy^2
 
-                    div_J = Jx_imhalf + Jy_jmhalf
+                div_J = Jx_imhalf + Jy_jmhalf
 
-                    F[nx,ny] = (c_new[nx,ny] - c_old[nx,ny]) / dt - div_J
-                end
+                F[nx,ny] = (c_new[nx,ny] - c_old[nx,ny]) / dt - div_J
+
             else
                 # Interior nodes
                 M_iphalf = M_func_half(c_new[i,j], c_new[i+1,j])
@@ -250,7 +224,7 @@ end
 
 function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
     L = 10.0
-    tf = 5
+    tf = 1
     nx = Int(L / dx) + 1
     ny = nx  # Assuming square domain
     x = range(0, L, length = nx)
@@ -299,32 +273,6 @@ function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
         c_max[n] = maximum(c)
         c_min[n] = minimum(c)
 
-        # Energy computation (optional)
-        # Compute gradients
-        grad_cx = zeros(nx, ny)
-        grad_cy = zeros(nx, ny)
-
-        # Interior points
-        for i in 2:nx-1
-            for j in 2:ny-1
-                grad_cx[i,j] = (c[i+1,j] - c[i-1,j]) / (2 * dx)
-                grad_cy[i,j] = (c[i,j+1] - c[i,j-1]) / (2 * dx)
-            end
-        end
-
-        # Boundaries (forward/backward differences)
-        for j in 1:ny
-            grad_cx[1,j] = (c[2,j] - c[1,j]) / dx  # Forward difference
-            grad_cx[nx,j] = (c[nx,j] - c[nx-1,j]) / dx  # Backward difference
-        end
-
-        for i in 1:nx
-            grad_cy[i,1] = (c[i,2] - c[i,1]) / dx  # Forward difference
-            grad_cy[i,ny] = (c[i,ny] - c[i,ny-1]) / dx  # Backward difference
-        end
-
-        energy_density = flory_huggins(c,chi,N1,N2) .+ (kappa / 2) * (grad_cx.^2 .+ grad_cy.^2)
-        energy[n] = trapz((x,y),energy_density)
 
         p = heatmap(x, y, c, color=:viridis, title="Time step: $n", xlabel="x", ylabel="y", colorbar=true, interpolate=true)
         frame(anim, p)  # Save the frame to the animation
@@ -339,7 +287,7 @@ function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
 end
 
 # Run the main function
-c_final, c_max, c_min, c_avg, energy, time_vals = impliciteuler_2d(18.0,1.0,1.0,0.2,0.1,"spline")
+c_final, c_max, c_min, c_avg, energy, time_vals = impliciteuler_2d(4.0,1.0,1.0,0.2,0.001,"spline")
 
 # Plot max, min, and average concentrations over time
 plt = plot(time_vals, c_max, label = "Max(ϕ)", xlabel = "Time", ylabel = "Concentration",

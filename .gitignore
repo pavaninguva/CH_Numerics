@@ -1,0 +1,5 @@
+#FEniCSx output files
+*.bp
+
+#Misc sim files
+*.gif
