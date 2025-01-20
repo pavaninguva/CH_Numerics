@@ -116,7 +116,7 @@ plot!(p1,phi_vals,f2.(phi_vals),label="",linecolor="red",linestyle=:dot,linewidt
 p2 = plot(legend=:bottomleft, size=(500, 500),
 grid=false,xlabel=L"\phi_{1}", ylabel=L"\frac{\partial f}{\partial \phi_{1}}")
 plot!(p2,phi_vals,fh_deriv.(phi_vals,50,1,1),label="Analytical, "*L"\chi_{12}=50, x_{1}=x_{2} = 1",lw=2,linecolor="black",alpha=1.0,seriestype=:samplemarkers,m = (5, :white, stroke(1, :blue)))
-plot!(p2,phi_vals,fh_deriv.(phi_vals,1,100,50),label="Analytical, "*L"\chi_{12}=10, x_{1}= 100, x_{2} = 1",lw=2,linecolor="black",alpha=1.0,seriestype=:samplemarkers,)
+plot!(p2,phi_vals,fh_deriv.(phi_vals,1,100,50),label="Analytical, "*L"\chi_{12}=10, x_{1}= 100, x_{2} = 50",lw=2,linecolor="black",alpha=1.0,seriestype=:samplemarkers,)
 
 plot!(p2,phi_vals,df1.(phi_vals),label="Spline, "*L"m=100",linecolor="red",linestyle=:dot,linewidth=2,alpha=0.5)
 plot!(p2,phi_vals,df2.(phi_vals),label="",linecolor="red",linestyle=:dot,linewidth=2,alpha=0.5)
@@ -127,7 +127,7 @@ plot(p1,p2, layout= (1,2), size=(800, 400),
     legendfont=Plots.font("Computer Modern",7),dpi=300,
     bottom_margin = 3Plots.mm, left_margin = 3Plots.mm, right_margin=3Plots.mm
     )
-# savefig("./spline_plot_bsplinekit.png")
+savefig("./spline_plot_bsplinekit.png")
 
 
 ### Plot RMSE
