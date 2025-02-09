@@ -49,6 +49,46 @@ function spline_generator(χ,N1,N2,knots=100)
     return df_spline
 end
 
+### Alternative function that constructs the spline directly on dfdphi
+# function spline_generator(chi,N1, N2, knots)
+
+#     function dfdphi(phi)
+#         return (1/N1).*log.(phi) - (1/N2).*(log.(1 .- phi)) .+ ((1/N1)-(1/N2)) .+ chi.*(1 .- 2 .*phi)
+#     end
+
+#     function tanh_sinh_spacing(n, β)
+#         points = 0.5 * (1 .+ tanh.(β .* (2 * collect(0:n-1) / (n-1) .- 1)))
+#         return points
+#     end
+    
+#     phi_vals_ = collect(tanh_sinh_spacing(knots-4,14))
+#     #Push extravals
+
+#     #Compute dfdphi and phi
+#     pushfirst!(phi_vals_,1e-16)
+#     push!(phi_vals_,1.0-1e-16)
+
+#     dfdphi_vals = dfdphi(phi_vals_)
+
+#     #Generate phi_vals
+#     eps_left = 1e-40
+#     eps_right = BigFloat(1.0) - BigFloat(eps_left)
+
+#     #Push less savory dfdphi values
+#     pushfirst!(dfdphi_vals,dfdphi(eps_left))
+#     push!(dfdphi_vals,Float64(dfdphi(eps_right)))
+
+#     phi_vals = pushfirst!(phi_vals_,0.0)
+#     push!(phi_vals,1.0)
+
+
+#     spline = BSplineKit.interpolate(phi_vals,dfdphi_vals,BSplineOrder(3))
+
+#     df_spline(phi) = spline(phi)
+    
+#     return df_spline
+# end
+
 
 # Residual function with Neumann boundary conditions
 function residual!(F, c_new, p)
@@ -63,14 +103,14 @@ function residual!(F, c_new, p)
     nx, ny = p.nx, p.ny
     energy_method= p.energy_method
 
-    # spline = spline_generator(chi, N1, N2)
-    # # if energy_method == "analytical"
-    # #     dfdphi = phi -> dfdphi_ana(phi,chi,N1, N2)
-    # # else
-    # dfdphi = phi -> spline.(phi)
-    # # end
+    spline = spline_generator(chi, N1, N2,100)
+    if energy_method == "analytical"
+        dfdphi = phi -> dfdphi_ana(phi,chi,N1, N2)
+    else
+        dfdphi = phi -> spline.(phi)
+    end
 
-    dfdphi = phi -> dfdphi_ana(phi,chi,N1,N2)
+    # dfdphi = phi -> dfdphi_ana(phi,chi,N1,N2)
 
     # Compute mu_new
     mu_new = similar(c_new)
@@ -104,7 +144,7 @@ function residual!(F, c_new, p)
                     laplacian_c = ((2.0 * (c_new[nx-1,ny] - c_new[nx,ny])) / dx^2) + (2.0 * (c_new[nx,ny-1] - c_new[nx,ny])) / dy^2
                 else
                     # Interior nodes
-                    laplacian_c = (c_new[i+1,ny] - 2.0 * c_new[i,ny] + c_new[i-1,ny]) / dx^2 + (c_new[nx,j+1] - 2.0 * c_new[nx,j] + c_new[nx,j-1]) / dy^2
+                    laplacian_c = (c_new[i+1,j] - 2.0 * c_new[i,j] + c_new[i-1,j]) / dx^2 + (c_new[i,j+1] - 2.0 * c_new[i,j] + c_new[i,j-1]) / dy^2
                 end
                 mu_new[i,j] = dfdphi(c_new[i,j]) - kappa*laplacian_c
             end
@@ -223,17 +263,17 @@ function residual!(F, c_new, p)
 end
 
 function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
-    L = 10.0
-    tf = 1
+    L = 50.0
+    tf = 8
     nx = Int(L / dx) + 1
     ny = nx  # Assuming square domain
     x = range(0, L, length = nx)
     y = range(0, L, length = ny)
     nt = Int(tf / dt)
-    kappa = (2 / 3) * chi  # Gradient energy term
+    kappa = (1 / 3) * chi  # Gradient energy term
 
     # Initial condition: small random perturbation around c0
-    c0 = 0.5
+    c0 = 0.2
     c = c0 .+ 0.02 * (rand(nx, ny) .- 0.5)
 
     # Initialize arrays to store results
@@ -287,7 +327,7 @@ function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
 end
 
 # Run the main function
-c_final, c_max, c_min, c_avg, energy, time_vals = impliciteuler_2d(4.0,1.0,1.0,0.2,0.001,"spline")
+c_final, c_max, c_min, c_avg, energy, time_vals = impliciteuler_2d(3.0,100.0,1.0,0.25,0.0005,"spline")
 
 # Plot max, min, and average concentrations over time
 plt = plot(time_vals, c_max, label = "Max(ϕ)", xlabel = "Time", ylabel = "Concentration",

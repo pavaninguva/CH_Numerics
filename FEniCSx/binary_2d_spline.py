@@ -8,7 +8,7 @@ from dolfinx.fem import form
 # from dolfinx.fem.petsc import NonlinearProblem
 # from dolfinx.nls.petsc import NewtonSolver
 from ufl import grad, inner, ln, Measure, derivative
-from scipy.interpolate import make_interp_spline
+from scipy.interpolate import make_interp_spline, CubicSpline
 import ufl
 import multiprocessing
 import matplotlib.pyplot as plt
@@ -25,6 +25,12 @@ from dolfinx_external_operator import (
 
 from solvers import LinearProblem
 
+from mpmath import mp
+import mpmath as mpmath
+
+# Set high precision
+mp.dps = 50 
+
 #formatting
 plt.rcParams["text.usetex"] = True
 plt.rc('font', family='serif')
@@ -34,46 +40,105 @@ Set up spline
 """
 
 def spline_generator(chi, N1, N2, knots):
-    def log_terms(phi):
-        # Vectorized log terms
-        return (phi/N1)*np.log(phi) + ((1 - phi)/N2)*np.log(1 - phi)
+    # def log_terms(phi):
+    #     # Vectorized log terms
+    #     return (phi/N1)*np.log(phi) + ((1 - phi)/N2)*np.log(1 - phi)
     
-    def tanh_sinh_spacing(n, beta):
-        # Return n points between 0 and 1 based on a tanh-sinh distribution
-        # Indices go from 0 to n-1
-        i = np.arange(n, dtype=float)
-        return 0.5 * (1.0 + np.tanh(beta*(2.0*i/(n-1) - 1.0)))
+    # def tanh_sinh_spacing(n, beta):
+    #     # Return n points between 0 and 1 based on a tanh-sinh distribution
+    #     # Indices go from 0 to n-1
+    #     i = np.arange(n, dtype=float)
+    #     return 0.5 * (1.0 + np.tanh(beta*(2.0*i/(n-1) - 1.0)))
     
-    phi_vals_ = tanh_sinh_spacing(knots - 2, 14.0)
+    # phi_vals_ = tanh_sinh_spacing(knots - 2, 14.0)
 
-    # Evaluate the log-terms for those interior points
-    f_vals_ = log_terms(phi_vals_)
+    # # Evaluate the log-terms for those interior points
+    # f_vals_ = log_terms(phi_vals_)
 
-    phi_vals = np.insert(phi_vals_, 0, 0.0)
-    phi_vals = np.append(phi_vals, 1.0)
-    f_vals = np.insert(f_vals_, 0, 0.0)
-    f_vals = np.append(f_vals, 0.0)
+    # phi_vals = np.insert(phi_vals_, 0, 0.0)
+    # phi_vals = np.append(phi_vals, 1.0)
+    # f_vals = np.insert(f_vals_, 0, 0.0)
+    # f_vals = np.append(f_vals, 0.0)
 
-    spline = make_interp_spline(phi_vals, f_vals, k=3)
-    spline_derivative = spline.derivative()
-    spline_derivative2 = spline.derivative(nu=2)
+    # spline = CubicSpline(phi_vals, f_vals)
+    # spline_derivative = spline.derivative()
+    # spline_derivative2 = spline.derivative(nu=2)
 
 
-    def f_spline(phi):
-        return spline(phi) + chi*phi*(1.0 - phi)
+    # def f_spline(phi):
+    #     return spline(phi) + chi*phi*(1.0 - phi)
 
-    def df_spline(phi):
-        return spline_derivative(phi) + chi*(1.0 - 2.0*phi)
+    # def df_spline(phi):
+    #     return spline_derivative(phi) + chi*(1.0 - 2.0*phi)
     
-    def d2f_spline(phi):
-        return spline_derivative2(phi) - 2.0*chi
+    # def d2f_spline(phi):
+    #     return spline_derivative2(phi) - 2.0*chi
 
-    return f_spline, df_spline, d2f_spline
+    def dfdphi(c):
+        return -2*chi*c + c - np.log(1-c) + np.log(c)
+    
+    spline_pot = CubicSpline(np.linspace(0,1,200),dfdphi(np.linspace(1e-16,1-1e-16,200)))
+
+    f_spline = None
+    df_spline = spline_pot
+    d2f_spline = spline_pot.derivative(1)
+
+    return df_spline, d2f_spline
+
+# def fh_deriv(phi, chi, N1, N2):
+#     return (1/N1)*np.log(phi) + (1/N1) \
+#            - (1/N2)*np.log(1 - phi) - (1/N2) \
+#            + chi - 2*chi*phi
+
+
+# def spline_generator(chi, N1, N2, knots):
+#     #Define small eps
+#     eps = 1e-40
+    
+#     def tanh_sinh_spacing(n, beta):
+#         # Return n points between 0 and 1 based on a tanh-sinh distribution
+#         # Indices go from 0 to n-1
+#         i = np.arange(n, dtype=float)
+#         return 0.5 * (1.0 + np.tanh(beta*(2.0*i/(n-1) - 1.0)))
+    
+#     phi_vals_ = tanh_sinh_spacing(knots - 4, 14.0)
+#     #Insert eps
+#     phi_vals_ = np.insert(phi_vals_,0,1e-16)
+#     phi_vals_ = np.insert(phi_vals_,0,eps)
+
+#     phi_vals_ = np.append(phi_vals_,1.0-1e-16)
+
+#     #Compute dfdphi vals
+#     dfdphi = fh_deriv(phi_vals_,chi,N1,N2)
+
+#     #compute eps_right
+#     eps_right = mp.mpf('1') - mp.mpf(f'{eps}')
+
+#     def df(phi):
+#         return (1/N1) * mpmath.log(phi) + (1/N1) - (1/N2) * mpmath.log(1 - phi) - (1/N2) + chi - 2 * chi * phi
+    
+#     dfdphi = np.append(dfdphi, float(df(eps_right)))
+
+#     #Update phi_vals
+#     phi_vals = np.append(phi_vals_,1.0)
+#     phi_vals[0] = 0.0
+
+#     print(dfdphi)
+
+#     spline = CubicSpline(phi_vals,dfdphi)
+#     def df_spline(phi):
+#         return spline(phi)
+    
+#     d2f_ = spline.derivative(1)
+#     def d2f_spline(phi):
+#         return d2f_(phi)
+    
+#     return df_spline, d2f_spline
 
 
 def cahn_hilliard(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=False):
     #Simulation parameters
-    Lx = Ly = 50.0
+    Lx = Ly = 20.0
     nx = ny = int(Lx/deltax)
     kappa = (2/3)*chi
 
@@ -109,7 +174,7 @@ def cahn_hilliard(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=Fal
     c0,mu0 = ufl.split(u0)
 
     #Spline bits
-    f_spline, df_spline, d2f_spline = spline_generator(chi,N1,N2,100)
+    df_spline, d2f_spline = spline_generator(chi,N1,N2,100)
 
     quadrature_degree = 2
     Qe=quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=())
@@ -152,7 +217,7 @@ def cahn_hilliard(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=Fal
 
     #Write to VTK and write ICs
     if return_data:
-        writer = io.VTXWriter(domain.comm, "sim.bp",[c],"BP4")
+        writer = io.VTXWriter(domain.comm, "sim_spline.bp",[c],"BP4")
         writer.write(0.0)
 
     #Compute energy at t =0
@@ -185,7 +250,7 @@ def cahn_hilliard(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=Fal
     counter = 0
 
     #Timestepping
-    while t < tend:
+    while t < tend - 1e-8:
         #Update t
         t += dt
 
@@ -253,7 +318,7 @@ def initial_condition(x):
     values = 0.5 + 0.02*(0.5-np.random.rand(x.shape[1]))
     return values
 
-tvals, phi_max, phi_min, phi_avg, energy_vals = cahn_hilliard(initial_condition,chi=4,N1=1,N2=1,stride=1,tend=200,deltax=1.0,dt=0.5,return_data=True)
+tvals, phi_max, phi_min, phi_avg, energy_vals = cahn_hilliard(initial_condition,chi=20,N1=1,N2=1,stride=10,tend=5,deltax=0.25,dt=0.005,return_data=True)
         
 #Plot
 fig, ax1 = plt.subplots()

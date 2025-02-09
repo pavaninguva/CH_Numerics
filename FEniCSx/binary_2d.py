@@ -4,12 +4,15 @@ import basix
 import ufl
 from basix.ufl import element, mixed_element
 from petsc4py import PETSc
-from dolfinx import fem, mesh, io
+from dolfinx import fem, mesh, io, log
 from ufl import grad, inner, ln, dx
 from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.nls.petsc import NewtonSolver
 
 import matplotlib.pyplot as plt
+
+from multiprocessing import Pool, cpu_count
+from functools import partial
 
 
 #formatting
@@ -18,14 +21,14 @@ plt.rc('font', family='serif')
 
 """
 This script implements a simple Backwards Euler method for solving
-the CH equation in mixed form
+the binary CH equation in mixed form
 """
 
 def cahn_hilliard(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=False):
     #Simulation parameters
     Lx = Ly = 50.0
     nx = ny = int(Lx/deltax)
-    kappa = (2/3)*chi
+    kappa = (1/3)*chi
 
     t = 0.0
     tend = tend
@@ -70,7 +73,7 @@ def cahn_hilliard(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=Fal
 
     #Write to VTK and write ICs
     if return_data:
-        writer = io.VTXWriter(domain.comm, "sim.bp",[c],"BP4")
+        writer = io.VTXWriter(domain.comm, "PS.bp",[c],"BP4")
         writer.write(0.0)
 
     #Compute energy at t =0
@@ -93,6 +96,7 @@ def cahn_hilliard(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=Fal
     solver.convergence_criterion = "residual"
     solver.atol = 1e-8
     solver.report = True
+    solver.error_on_nonconvergence=True
 
     ksp = solver.krylov_solver
     opts = PETSc.Options()
@@ -105,11 +109,13 @@ def cahn_hilliard(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=Fal
     stride = stride
     counter = 0
 
+    log.set_log_level(log.LogLevel.INFO)
     while t < tend -1e-8: 
         #Update t
         t += dt
         #Solve
         res = solver.solve(u)
+        print(res)
         print(f"Step {int(t/dt)}: num iterations: {res[0]}")
 
         #Update u0
@@ -152,7 +158,7 @@ def initial_condition(x):
 
 if run_test_case:
 
-    tvals, phi_max, phi_min, phi_avg, energy_vals = cahn_hilliard(initial_condition,chi=4,N1=1,N2=1,stride=1,tend=100,deltax=1.0,dt=0.5,return_data=True)
+    tvals, phi_max, phi_min, phi_avg, energy_vals = cahn_hilliard(initial_condition,chi=4,N1=500,N2=1,stride=1,tend=100,deltax=1.0,dt=0.1,return_data=True)
         
     #Plot
     fig, ax1 = plt.subplots()
@@ -171,6 +177,25 @@ if run_test_case:
     ax2.tick_params(axis='y', labelcolor='red')
     ax2.yaxis.label.set_color('red')
     fig.tight_layout()
+
+
+"""
+Running parameter sweep to see stability region
+"""
+
+def run_simulation(chi, deltax, initial_dt, min_dt, initial_condition):
+    dt = initial_dt
+    while dt >= min_dt:
+        try:
+            # Call the actual cahn_hilliard function here
+            cahn_hilliard(initial_condition, chi=chi, N1=1, N2=1, stride=1, tend=500, deltax=deltax, dt=dt, return_data=True)
+            return dt  # Return the first successful dt
+        except Exception as e:
+            print(f"Simulation failed for chi={chi}, deltax={deltax}, dt={dt}. Error: {str(e)}")
+            dt /= 2  # Halve the dt value and try again
+    # Return failure message if no dt succeeds
+    return f"No stable dt found for chi={chi}, deltax={deltax}, starting from dt={initial_dt}."
+
 
 plt.show()
 

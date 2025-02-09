@@ -438,7 +438,7 @@ p4= heatmap(dx_values, chi_values, log_dt_be_spline,
     clims=(cmin_be_ana, cmax_be_ana),
     colorbar_title = L"\log_{10}(\max(\Delta t))",
     xscale = :log10, grid=false,tickfont=Plots.font("Computer Modern", 10),
-    title="Backward Euler, Full",
+    title="Backward Euler, Spline",
     titlefont=Plots.font("Computer Modern",12),size=(500,500))
 
 
