@@ -8,6 +8,7 @@ using IterativeSolvers
 using LaTeXStrings
 using Random
 using Plots.PlotMeasures
+using Statistics
 
 Random.seed!(1234)
 
@@ -102,6 +103,7 @@ function mol_solver(chi, N1, N2, dx, energy_method)
 
     function ode_system!(du, u, p, t)
         du .= CH(u, dx, params)
+        println(t)
     end
 
     # Set up the problem
@@ -127,9 +129,10 @@ function impliciteuler(chi, N1, N2, dx, dt, energy_method, times_to_plot)
     results = Dict{Float64, Vector{Float64}}()
 
     # Store initial conditions if necessary
-    if any(isapprox(0.0, t; atol=dt/10) for t in times_to_plot)
+    if any(isapprox(0.0, t; atol=dt/10000) for t in times_to_plot)
         results[0.0] = copy(c)
     end
+
 
     spline = spline_generator(chi,N1,N2,100)
     dfdphi = phi -> begin 
@@ -147,6 +150,23 @@ function impliciteuler(chi, N1, N2, dx, dt, energy_method, times_to_plot)
     function M_func_half(phi1, phi2)
         return M_func(0.5 .* (phi1 .+ phi2))
     end
+
+    max_allowed_iterations = 2
+    prev_residual_norm=Ref(Inf)
+    function check_residual_callback(state)
+        if state.iteration == 1
+            prev_residual_norm[] = state.f_norm
+        else
+            # Compare current residual norm with the previous one.
+            if state.f_norm > prev_residual_norm[]
+                error("Residual norm did not decrease (iteration $(state.iteration)): previous norm = $(prev_residual_norm[]), current norm = $(state.f_norm)")
+            end
+            # Update for the next iteration.
+            prev_residual_norm[] = state.f_norm
+        end
+        return true  # Return true to continue iterations.
+    end
+    
     
     function ie_residual!(F, c_new, p)
         c_old = p.c_old
@@ -190,8 +210,8 @@ function impliciteuler(chi, N1, N2, dx, dt, energy_method, times_to_plot)
 
      # Ensure the times to plot are sorted and set up an index pointer.
      times_to_plot = sort(times_to_plot)
-     next_index = 1
-     tol = dt / 10
+     next_index = 2
+     tol = dt / 1000
 
      for n in 1:nt
         t = n * dt
@@ -201,9 +221,18 @@ function impliciteuler(chi, N1, N2, dx, dt, energy_method, times_to_plot)
         c_guess = copy(c_old)
     
         # Set up and solve the nonlinear problem for the current time step.
+        
+
         problem = NonlinearProblem(ie_residual!, c_guess, p)
-        solver = solve(problem, NewtonRaphson(linsolve = KrylovJL_GMRES()))
+        solver = solve(problem, NewtonRaphson(linsolve = KrylovJL_GMRES()),
+                        show_trace=Val(false),abstol=1e-8)
         c = solver.u
+
+        #Check solver residual
+        abstol = 1e-7
+        if norm(solver.resid,Inf) > abstol
+            error("Sovler did not converge")
+        end
 
         while next_index <= length(times_to_plot) && t >= times_to_plot[next_index] - tol
             results[times_to_plot[next_index]] = copy(c)
@@ -221,16 +250,22 @@ end
 """
 Run solvers for Plots
 """
-t_vals = [0.0,5.0,10.0,15.0,20.0,25.0,100.0]
-
-sol_mol_ana_1 = mol_solver(6,1,1,0.05,"analytical")
-sol_mol_spline_1 = mol_solver(6,1,1,0.05,"spline")
+# t_vals = [0.0,4.0,5.0,6.0,7.0,8.0,10.0,25.0,100.0]
 
 
-tvals, sol_be_ana_1, xvals = impliciteuler(6,1,1,0.02,0.1,"analytical",t_vals)
+# sol_mol_ana_1 = mol_solver(6,1,1,0.02,"analytical")
+# sol_mol_spline_1 = mol_solver(6,1,1,0.02,"spline")
 
 
+# tvals, sol_be_ana_1, xvals = impliciteuler(6,1,1,0.02,0.1,"analytical",t_vals)
 
+# tvals2, sol_be_spline_1, xvals2 = impliciteuler(6,1,1,0.02,0.1,"spline",t_vals)
+
+
+tvals_2 = [0.0,0.5,1.0,1.5,2.0,5.0,10.0,100.0]
+sol_mol_spline_2 = mol_solver(20,1,1,0.02,"spline")
+
+tvals3, sol_be_spline_2, xvals3 = impliciteuler(20,1,1,0.02,0.005,"spline",tvals_2)
 
 
 """
@@ -238,44 +273,83 @@ Plot
 """
 
 #Backward Euler Analytical
-p1 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+# p1 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+#         grid=false,tickfont=Plots.font("Computer Modern", 10),
+#         titlefont=Plots.font("Computer Modern",12),
+#         legendfont=Plots.font("Computer Modern",10),
+#         title="Backward Euler, Full"
+# )
+
+# for (t,sol) in zip(tvals,sol_be_ana_1)
+#     plot!(p1,xvals,sol, label="t=$(t)",linewidth=2)
+# end
+
+
+# #Backward Euler Spline
+# p2 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+#         grid=false,tickfont=Plots.font("Computer Modern", 10),
+#         titlefont=Plots.font("Computer Modern",12),
+#         legendfont=Plots.font("Computer Modern",10),
+#         title="Backward Euler, Spline"
+# )
+
+# for (t,sol) in zip(tvals2,sol_be_spline_1)
+#     plot!(p2,xvals,sol, label="t=$(t)",linewidth=2)
+# end
+
+
+# #TRBDF2 Analytical
+# p3 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+#         grid=false,tickfont=Plots.font("Computer Modern", 10),
+#         titlefont=Plots.font("Computer Modern",12),
+#         legendfont=Plots.font("Computer Modern",10),
+#         title="TRBDF2, Full"
+# )
+
+# for t in t_vals
+#     plot!(p3,range(0.0,4.0,length(sol_mol_ana_1(0.0))),sol_mol_ana_1(t),label="t=$(t)",linewidth=2)
+# end
+
+# #TRBDF2 Spline
+
+# p4 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+#         grid=false,tickfont=Plots.font("Computer Modern", 10),
+#         titlefont=Plots.font("Computer Modern",12),
+#         legendfont=Plots.font("Computer Modern",10),
+#         title="TRBDF2, Spline"
+# )
+
+# for t in t_vals
+#     plot!(p4,range(0.0,4.0,length(sol_mol_spline_1(0.0))),sol_mol_spline_1(t),label="t=$(t)",linewidth=2)
+# end
+
+# p_all_1 = plot(p1,p2,p3,p4,layout=(2,2),size=(1000,1000),dpi=300, leftmargin=3mm,bottommargin=3mm,rightmargin=3mm)
+
+# savefig(p_all_1,"1d_benchmark_plots_chi6.png")
+
+
+
+#Backward Euler Spline
+p5 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
         grid=false,tickfont=Plots.font("Computer Modern", 10),
         titlefont=Plots.font("Computer Modern",12),
         legendfont=Plots.font("Computer Modern",10),
-        title="Backward Euler, Full"
+        title="Backward Euler, Spline"
 )
 
-for (t,sol) in zip(tvals,sol_be_ana_1)
-    plot!(p1,xvals,sol, label="t=$(t)")
+for (t,sol) in zip(tvals3,sol_be_spline_2)
+    plot!(p5,xvals3,sol, label="t=$(t)",linewidth=2)
 end
 
-
-#TRBDF2 Analytical
-p3 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
-        grid=false,tickfont=Plots.font("Computer Modern", 10),
-        titlefont=Plots.font("Computer Modern",12),
-        legendfont=Plots.font("Computer Modern",10),
-        title="TRBDF2, Full"
-)
-
-for t in t_vals
-    plot!(p3,range(0.0,4.0,length(sol_mol_ana_1(0.0))),sol_mol_ana_1(t),label="t=$(t)",linewidth=2)
-end
-
-#TRBDF2 Spline
-
-p4 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+p6 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
         grid=false,tickfont=Plots.font("Computer Modern", 10),
         titlefont=Plots.font("Computer Modern",12),
         legendfont=Plots.font("Computer Modern",10),
         title="TRBDF2, Spline"
 )
 
-for t in t_vals
-    plot!(p4,range(0.0,4.0,length(sol_mol_spline_1(0.0))),sol_mol_spline_1(t),label="t=$(t)",linewidth=2)
+for t in tvals_2
+    plot!(p6,range(0.0,4.0,length(sol_mol_spline_2(0.0))),sol_mol_spline_2(t),label="t=$(t)",linewidth=2)
 end
 
-plot(p1,p1,p3,p4,layout=(2,2),size=(1000,1000),dpi=300, leftmargin=3mm,bottommargin=3mm,rightmargin=3mm)
-
-
-
+p_all_2 = plot(p5,p6,layout=(1,2),size=(1000,500),dpi=300, leftmargin=3mm,bottommargin=3mm,rightmargin=3mm)

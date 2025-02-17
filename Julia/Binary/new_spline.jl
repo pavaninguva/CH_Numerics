@@ -85,6 +85,7 @@ function spline_generator(chi,N1,N2,knots)
     return f_spline, df_spline
 end
 
+
 #Define fh and fh_deriv
 
 function fh(phi,chi,N1,N2)

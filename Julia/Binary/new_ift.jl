@@ -2,7 +2,6 @@ using Plots
 using NonlinearSolve
 using NaNMath
 using LaTeXStrings
-# using Dierckx
 using BSplineKit
 
 """

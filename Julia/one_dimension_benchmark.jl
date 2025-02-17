@@ -1,4 +1,4 @@
-using BSplineKit
+# using BSplineKit
 using SparseArrays
 using LinearAlgebra
 using NonlinearSolve
@@ -13,6 +13,7 @@ using DifferentialEquations
 using CSV
 using DataFrames
 using Plots.PlotMeasures
+include("./pchip.jl") 
 
 """
 This script tests the ability of the solvers to converge 
@@ -25,30 +26,71 @@ for different values of chi and dx by varying dt
 Functions
 """
 
-function spline_generator(χ,N1,N2,knots=100)
-    #Def log terms 
-    log_terms(ϕ) =  (ϕ./N1).*log.(ϕ) .+ ((1 .-ϕ)./N2).*log.(1 .-ϕ)
+# function spline_generator(χ,N1,N2,knots=100)
+#     #Def log terms 
+#     log_terms(ϕ) =  (ϕ./N1).*log.(ϕ) .+ ((1 .-ϕ)./N2).*log.(1 .-ϕ)
+
+#     function tanh_sinh_spacing(n, β)
+#         points = 0.5 * (1 .+ tanh.(β .* (2 * collect(0:n-1) / (n-1) .- 1)))
+#         return points
+#     end
+    
+#     phi_vals_ = collect(tanh_sinh_spacing(knots-2,14))
+#     f_vals_ = log_terms(phi_vals_)
+
+#     #Append boundary values
+#     phi_vals = pushfirst!(phi_vals_,0)
+#     f_vals = pushfirst!(f_vals_,0)
+#     push!(phi_vals,1)
+#     push!(f_vals,0)
+
+#     spline = BSplineKit.interpolate(phi_vals, f_vals,BSplineOrder(4))
+#     d_spline = Derivative(1)*spline
+
+#     df_spline(phi) = d_spline.(phi) .+ χ.*(1 .- 2*phi)
+
+#     return df_spline
+# end
+
+function fh_deriv(phi,chi,N1,N2)
+    df = (1/N1).*log.(phi) .+ (1/N1) .- (1/N2).*log.(1 .- phi) .- (1/N2) .- 2*chi.*phi .+ chi
+    return df
+end
+
+function spline_generator(chi, N1, N2, knots)
+
 
     function tanh_sinh_spacing(n, β)
         points = 0.5 * (1 .+ tanh.(β .* (2 * collect(0:n-1) / (n-1) .- 1)))
         return points
     end
     
-    phi_vals_ = collect(tanh_sinh_spacing(knots-2,14))
-    f_vals_ = log_terms(phi_vals_)
+    phi_vals_ = collect(tanh_sinh_spacing(knots-4,14))
 
-    #Append boundary values
+    pushfirst!(phi_vals_,1e-16)
+    push!(phi_vals_,1-1e-16)
+
+    f_vals_ = fh_deriv(phi_vals_,chi,N1,N2)
+
     phi_vals = pushfirst!(phi_vals_,0)
-    f_vals = pushfirst!(f_vals_,0)
     push!(phi_vals,1)
-    push!(f_vals,0)
 
-    spline = BSplineKit.interpolate(phi_vals, f_vals,BSplineOrder(4))
-    d_spline = Derivative(1)*spline
+    #Compute value at eps
+    eps_val = BigFloat("1e-40")
+    one_big = BigFloat(1)
 
-    df_spline(phi) = d_spline.(phi) .+ χ.*(1 .- 2*phi)
+    f_eps = fh_deriv(eps_val,BigFloat(chi),BigFloat(N1), BigFloat(N2))
+    f_eps1 = fh_deriv(one_big-eps_val, BigFloat(chi),BigFloat(N1), BigFloat(N2))
 
-    return df_spline
+    f_eps_float = Float64(f_eps)
+    f_eps1_float = Float64(f_eps1)
+
+    f_vals = pushfirst!(f_vals_,f_eps_float)
+    push!(f_vals, f_eps1_float)
+
+    # Build and return the spline function using pchip
+    spline = pchip(phi_vals, f_vals)
+    return spline
 end
 
 function CH(ϕ, dx, params)
@@ -194,9 +236,21 @@ function impliciteuler(chi, N1, N2, dx, dt, energy_method)
         # Create the NonlinearProblem
         problem = NonlinearProblem(ie_residual!, c_guess, p)
         # Solve the nonlinear system
-        solver = solve(problem, NewtonRaphson(linsolve = KrylovJL_GMRES()))
+        term_cond = AbsNormSafeTerminationMode(
+            NonlinearSolve.L2_NORM; protective_threshold = nothing,
+            patience_steps = 100, patience_objective_multiplier = 3,
+            min_max_factor = 1.3,
+            )
+        solver = solve(problem, NewtonRaphson(linsolve = KrylovJL_GMRES()),show_trace=Val(false),termination_condition=term_cond,abstol=1e-8)
         # Update c for the next time step
         c = solver.u
+        abstol = 1e-7
+        # if solver.retcode != NonlinearSolve.SUCCESS
+        #     println("Solver failed at dt = $t_val")
+        # end
+        if norm(solver.resid,Inf) > abstol || any(x -> x>1 || x < 0, c)
+            error("Sovler did not converge")
+        end
     end
 end
 
@@ -290,8 +344,8 @@ function param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method
 end
 
 
-chi_values = 6:1:20  
-dx_values = [0.02,0.025,0.04,0.05,0.08,0.1,0.2] 
+chi_values = 6:1:30  
+dx_values = [0.02,0.025,0.04,0.05,0.08,0.1,0.16,0.2] 
 
 min_dt_matrix_spline = param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline",results_file="./1d_dt_bdf_spline.csv")
 min_dt_matrix_analytical = param_sweep_min_dt(chi_values,dx_values,N1=1.0,N2=1.0,energy_method="analytical",results_file="./1d_dt_bdf_ana.csv")
@@ -362,12 +416,14 @@ function run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="anal
             success = try_simulation(chi, N1, N2, dx, dt, energy_method)
             if success
                 # If successful, we found a stable dt
+                println("Min dt for chi=$chi and dx=$dx is dt=$dt")
                 return dt
             else
                 dt /= 2
             end
         end
         # If we reach here, no stable dt was found above dt_min
+        println("Failed :(")
         return NaN
     end
 
