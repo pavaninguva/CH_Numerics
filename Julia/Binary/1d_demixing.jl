@@ -9,6 +9,10 @@ using LaTeXStrings
 using Random
 using Plots.PlotMeasures
 using Statistics
+using DifferentialEquations
+# using BSplineKit
+include("../pchip.jl") 
+
 
 Random.seed!(1234)
 
@@ -21,30 +25,71 @@ This script is used to run the 1d method
 Functions for Solvers
 """
 
-function spline_generator(χ,N1,N2,knots=100)
-    #Def log terms 
-    log_terms(ϕ) =  (ϕ./N1).*log.(ϕ) .+ ((1 .-ϕ)./N2).*log.(1 .-ϕ)
+# function spline_generator(χ,N1,N2,knots=100)
+#     #Def log terms 
+#     log_terms(ϕ) =  (ϕ./N1).*log.(ϕ) .+ ((1 .-ϕ)./N2).*log.(1 .-ϕ)
+
+#     function tanh_sinh_spacing(n, β)
+#         points = 0.5 * (1 .+ tanh.(β .* (2 * collect(0:n-1) / (n-1) .- 1)))
+#         return points
+#     end
+    
+#     phi_vals_ = collect(tanh_sinh_spacing(knots-2,14))
+#     f_vals_ = log_terms(phi_vals_)
+
+#     #Append boundary values
+#     phi_vals = pushfirst!(phi_vals_,0)
+#     f_vals = pushfirst!(f_vals_,0)
+#     push!(phi_vals,1)
+#     push!(f_vals,0)
+
+#     spline = BSplineKit.interpolate(phi_vals, f_vals,BSplineOrder(4))
+#     d_spline = Derivative(1)*spline
+
+#     df_spline(phi) = d_spline.(phi) .+ χ.*(1 .- 2*phi)
+
+#     return df_spline
+# end
+
+function fh_deriv(phi,chi,N1,N2)
+    df = (1/N1).*log.(phi) .+ (1/N1) .- (1/N2).*log.(1 .- phi) .- (1/N2) .- 2*chi.*phi .+ chi
+    return df
+end
+
+function spline_generator(chi, N1, N2, knots)
+
 
     function tanh_sinh_spacing(n, β)
         points = 0.5 * (1 .+ tanh.(β .* (2 * collect(0:n-1) / (n-1) .- 1)))
         return points
     end
     
-    phi_vals_ = collect(tanh_sinh_spacing(knots-2,14))
-    f_vals_ = log_terms(phi_vals_)
+    phi_vals_ = collect(tanh_sinh_spacing(knots-4,14))
 
-    #Append boundary values
+    pushfirst!(phi_vals_,1e-16)
+    push!(phi_vals_,1-1e-16)
+
+    f_vals_ = fh_deriv(phi_vals_,chi,N1,N2)
+
     phi_vals = pushfirst!(phi_vals_,0)
-    f_vals = pushfirst!(f_vals_,0)
     push!(phi_vals,1)
-    push!(f_vals,0)
 
-    spline = BSplineKit.interpolate(phi_vals, f_vals,BSplineOrder(4))
-    d_spline = Derivative(1)*spline
+    #Compute value at eps
+    eps_val = BigFloat("1e-40")
+    one_big = BigFloat(1)
 
-    df_spline(phi) = d_spline.(phi) .+ χ.*(1 .- 2*phi)
+    f_eps = fh_deriv(eps_val,BigFloat(chi),BigFloat(N1), BigFloat(N2))
+    f_eps1 = fh_deriv(one_big-eps_val, BigFloat(chi),BigFloat(N1), BigFloat(N2))
 
-    return df_spline
+    f_eps_float = Float64(f_eps)
+    f_eps1_float = Float64(f_eps1)
+
+    f_vals = pushfirst!(f_vals_,f_eps_float)
+    push!(f_vals, f_eps1_float)
+
+    # Build and return the spline function using pchip
+    spline = pchip(phi_vals, f_vals)
+    return spline
 end
 
 function CH(ϕ, dx, params)
@@ -87,17 +132,29 @@ function CH(ϕ, dx, params)
     return f
 end
 
-function mol_solver(chi, N1, N2, dx, energy_method)
+function mol_solver(chi, N1, N2, dx, L=4.0, tend, energy_method)
     #Simulation Parameters
-    L = 4.0
-    tf = 100.0
+    L = L
+    tf = tend
     nx = Int(L / dx) + 1
-    x = range(0, L, length = nx)
+    xvals = range(0, L, length = nx)
     kappa = (2 / 3) * chi
 
     # Initial condition: small random perturbation around c0
     c0_ = 0.5
     c0 = c0_ .+ 0.02 * (rand(nx) .- 0.5)
+
+    # function sigmoid(x, a, b)
+    #     return 1 ./ (1 .+ exp.(-a .* (x - b)))
+    # end
+
+    # #Define initial conditions
+    # # Parameters for the sigmoid
+    # a = 5        # Controls the slope of the transition
+    # b = L / 2    # Midpoint of the transition
+
+    # # Define the initial condition across the domain
+    # c0 = 0.2 .+ 0.6 .* sigmoid.(xvals, a, b)
     #Set up MOL bits
     params = (chi, kappa, N1, N2,energy_method)
 
@@ -108,7 +165,7 @@ function mol_solver(chi, N1, N2, dx, energy_method)
 
     # Set up the problem
     prob = ODEProblem(ode_system!, c0, (0.0, tf))
-    sol = solve(prob, TRBDF2(),reltol=1e-8, abstol=1e-8)
+    sol = solve(prob, TRBDF2(nlsolve = NLNewton(relax=0)),reltol=1e-6, abstol=1e-8)
 
     return sol
 end
@@ -149,22 +206,6 @@ function impliciteuler(chi, N1, N2, dx, dt, energy_method, times_to_plot)
 
     function M_func_half(phi1, phi2)
         return M_func(0.5 .* (phi1 .+ phi2))
-    end
-
-    max_allowed_iterations = 2
-    prev_residual_norm=Ref(Inf)
-    function check_residual_callback(state)
-        if state.iteration == 1
-            prev_residual_norm[] = state.f_norm
-        else
-            # Compare current residual norm with the previous one.
-            if state.f_norm > prev_residual_norm[]
-                error("Residual norm did not decrease (iteration $(state.iteration)): previous norm = $(prev_residual_norm[]), current norm = $(state.f_norm)")
-            end
-            # Update for the next iteration.
-            prev_residual_norm[] = state.f_norm
-        end
-        return true  # Return true to continue iterations.
     end
     
     
@@ -253,8 +294,8 @@ Run solvers for Plots
 # t_vals = [0.0,4.0,5.0,6.0,7.0,8.0,10.0,25.0,100.0]
 
 
-# sol_mol_ana_1 = mol_solver(6,1,1,0.02,"analytical")
-# sol_mol_spline_1 = mol_solver(6,1,1,0.02,"spline")
+# sol_mol_ana_1 = mol_solver(6,1,1,0.02,100,"analytical")
+# sol_mol_spline_1 = mol_solver(6,1,1,0.02,100,"spline")
 
 
 # tvals, sol_be_ana_1, xvals = impliciteuler(6,1,1,0.02,0.1,"analytical",t_vals)
@@ -262,10 +303,10 @@ Run solvers for Plots
 # tvals2, sol_be_spline_1, xvals2 = impliciteuler(6,1,1,0.02,0.1,"spline",t_vals)
 
 
-tvals_2 = [0.0,0.5,1.0,1.5,2.0,5.0,10.0,100.0]
-sol_mol_spline_2 = mol_solver(20,1,1,0.02,"spline")
+# tvals_2 = [0.0,0.5,1.0,1.5,2.0,5.0,10.0,100.0]
+# sol_mol_spline_2 = mol_solver(20,1,1,0.02,100,"spline")
 
-tvals3, sol_be_spline_2, xvals3 = impliciteuler(20,1,1,0.02,0.005,"spline",tvals_2)
+# tvals3, sol_be_spline_2, xvals3 = impliciteuler(20,1,1,0.02,0.005,"spline",tvals_2)
 
 
 """
@@ -329,27 +370,88 @@ Plot
 
 
 
-#Backward Euler Spline
-p5 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+# #Backward Euler Spline
+# p5 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+#         grid=false,tickfont=Plots.font("Computer Modern", 10),
+#         titlefont=Plots.font("Computer Modern",12),
+#         legendfont=Plots.font("Computer Modern",10),
+#         title="Backward Euler, Spline"
+# )
+
+# for (t,sol) in zip(tvals3,sol_be_spline_2)
+#     plot!(p5,xvals3,sol, label="t=$(t)",linewidth=2)
+# end
+
+# p6 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+#         grid=false,tickfont=Plots.font("Computer Modern", 10),
+#         titlefont=Plots.font("Computer Modern",12),
+#         legendfont=Plots.font("Computer Modern",10),
+#         title="TRBDF2, Spline"
+# )
+
+# for t in tvals_2
+#     plot!(p6,range(0.0,4.0,length(sol_mol_spline_2(0.0))),sol_mol_spline_2(t),label="t=$(t)",linewidth=2)
+# end
+
+# p_all_2 = plot(p5,p6,layout=(1,2),size=(1000,500),dpi=300, leftmargin=3mm,bottommargin=3mm,rightmargin=3mm)
+
+
+"""
+Plot mol spline solution for different chi
+"""
+
+sol_mol_spline_3 = mol_solver(10, 1, 1, 0.04, 20, "spline")
+sol_mol_spline_4 = mol_solver(20, 1, 1, 0.04, 10, "spline")
+sol_mol_spline_5 = mol_solver(30, 1, 1, 0.04, 5, "spline")
+sol_mol_spline_6 = mol_solver(40, 1, 1, 0.04, 4.0, "spline")
+
+p7 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
         grid=false,tickfont=Plots.font("Computer Modern", 10),
         titlefont=Plots.font("Computer Modern",12),
         legendfont=Plots.font("Computer Modern",10),
-        title="Backward Euler, Spline"
+        title=L"\chi = 10"
 )
 
-for (t,sol) in zip(tvals3,sol_be_spline_2)
-    plot!(p5,xvals3,sol, label="t=$(t)",linewidth=2)
+tvals_ = [0.0,1.0,2.0,3.0,3.5,10.0,20.0]
+for t in tvals_
+    plot!(p7,range(0.0,4.0,length(sol_mol_spline_3(0.0))),sol_mol_spline_3(t),label="t=$(t)",linewidth=2)
 end
 
-p6 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+p8 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
         grid=false,tickfont=Plots.font("Computer Modern", 10),
         titlefont=Plots.font("Computer Modern",12),
         legendfont=Plots.font("Computer Modern",10),
-        title="TRBDF2, Spline"
+        title=L"\chi = 20"
 )
 
-for t in tvals_2
-    plot!(p6,range(0.0,4.0,length(sol_mol_spline_2(0.0))),sol_mol_spline_2(t),label="t=$(t)",linewidth=2)
+tvals_ = [0.0,0.5,1.0,2.0,2.5,5.0,10.0]
+for t in tvals_
+    plot!(p8,range(0.0,4.0,length(sol_mol_spline_4(0.0))),sol_mol_spline_4(t),label="t=$(t)",linewidth=2)
 end
 
-p_all_2 = plot(p5,p6,layout=(1,2),size=(1000,500),dpi=300, leftmargin=3mm,bottommargin=3mm,rightmargin=3mm)
+p9 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+        grid=false,tickfont=Plots.font("Computer Modern", 10),
+        titlefont=Plots.font("Computer Modern",12),
+        legendfont=Plots.font("Computer Modern",10),
+        title=L"\chi = 30"
+)
+
+tvals_ = [0.0,0.25,0.5,1.0,1.5,2.0,5.0]
+for t in tvals_
+    plot!(p9,range(0.0,4.0,length(sol_mol_spline_5(0.0))),sol_mol_spline_5(t),label="t=$(t)",linewidth=2)
+end
+
+p10 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+        grid=false,tickfont=Plots.font("Computer Modern", 10),
+        titlefont=Plots.font("Computer Modern",12),
+        legendfont=Plots.font("Computer Modern",10),
+        title=L"\chi = 40"
+)
+
+tvals_ = [0.0,0.05,0.1,0.5,0.6,0.84,1.0,2.0,4.0]
+for t in tvals_
+    plot!(p10,range(0.0,4.0,length(sol_mol_spline_6(0.0))),sol_mol_spline_6(t),label="t=$(t)",linewidth=2)
+end
+
+
+p_all_3 = plot(p7,p8,p9,p10,layout=(2,2),size=(1000,1000),dpi=300, leftmargin=3mm,bottommargin=3mm,rightmargin=3mm)
