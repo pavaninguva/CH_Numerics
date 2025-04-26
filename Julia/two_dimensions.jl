@@ -247,7 +247,7 @@ function residual!(F, c_new, p)
 end
 
 function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method::String)
-    L = 10.0
+    L = 100.0
     tf = 5.0
     nx = Int(L / dx) + 1
     ny = nx  # Assuming square domain

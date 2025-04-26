@@ -7,8 +7,9 @@ using Trapz
 using IterativeSolvers
 using Random
 using Statistics
-using BSplineKit
+# using BSplineKit
 using Sundials
+include("./pchip.jl") 
 
 Random.seed!(1234)
 
@@ -23,31 +24,67 @@ function dfdphi_ana(phi, chi, N1, N2)
     return (1/N1)*log.(phi) - (1/N2)*log.(1 .- phi) + chi * (1 .- 2 .* phi)
 end
 
-function spline_generator(χ,N1,N2,knots=100)
-    #Def log terms 
-    log_terms(ϕ) =  (ϕ./N1).*log.(ϕ) .+ ((1 .-ϕ)./N2).*log.(1 .-ϕ)
+function spline_generator(chi, N1, N2, knots)
+
 
     function tanh_sinh_spacing(n, β)
         points = 0.5 * (1 .+ tanh.(β .* (2 * collect(0:n-1) / (n-1) .- 1)))
         return points
     end
     
-    phi_vals_ = collect(tanh_sinh_spacing(knots-2,14))
-    f_vals_ = log_terms(phi_vals_)
+    phi_vals_ = collect(tanh_sinh_spacing(knots-4,14))
 
-    #Append boundary values
+    pushfirst!(phi_vals_,1e-16)
+    push!(phi_vals_,1-1e-16)
+
+    f_vals_ = dfdphi_ana(phi_vals_,chi,N1,N2)
+
     phi_vals = pushfirst!(phi_vals_,0)
-    f_vals = pushfirst!(f_vals_,0)
     push!(phi_vals,1)
-    push!(f_vals,0)
 
-    spline = BSplineKit.interpolate(phi_vals, f_vals,BSplineOrder(4))
-    d_spline = Derivative(1)*spline
+    #Compute value at eps
+    eps_val = BigFloat("1e-40")
+    one_big = BigFloat(1)
 
-    df_spline(phi) = d_spline.(phi) .+ χ.*(1 .- 2*phi)
+    f_eps = dfdphi_ana(eps_val,BigFloat(chi),BigFloat(N1), BigFloat(N2))
+    f_eps1 = dfdphi_ana(one_big-eps_val, BigFloat(chi),BigFloat(N1), BigFloat(N2))
 
-    return df_spline
+    f_eps_float = Float64(f_eps)
+    f_eps1_float = Float64(f_eps1)
+
+    f_vals = pushfirst!(f_vals_,f_eps_float)
+    push!(f_vals, f_eps1_float)
+
+    # Build and return the spline function using pchip
+    spline = pchip(phi_vals, f_vals)
+    return spline
 end
+
+# function spline_generator(χ,N1,N2,knots=100)
+#     #Def log terms 
+#     log_terms(ϕ) =  (ϕ./N1).*log.(ϕ) .+ ((1 .-ϕ)./N2).*log.(1 .-ϕ)
+
+#     function tanh_sinh_spacing(n, β)
+#         points = 0.5 * (1 .+ tanh.(β .* (2 * collect(0:n-1) / (n-1) .- 1)))
+#         return points
+#     end
+    
+#     phi_vals_ = collect(tanh_sinh_spacing(knots-2,14))
+#     f_vals_ = log_terms(phi_vals_)
+
+#     #Append boundary values
+#     phi_vals = pushfirst!(phi_vals_,0)
+#     f_vals = pushfirst!(f_vals_,0)
+#     push!(phi_vals,1)
+#     push!(f_vals,0)
+
+#     spline = BSplineKit.interpolate(phi_vals, f_vals,BSplineOrder(4))
+#     d_spline = Derivative(1)*spline
+
+#     df_spline(phi) = d_spline.(phi) .+ χ.*(1 .- 2*phi)
+
+#     return df_spline
+# end
 
 ### Alternative function that constructs the spline directly on dfdphi
 # function spline_generator(chi,N1, N2, knots)
@@ -263,17 +300,21 @@ function residual!(F, c_new, p)
 end
 
 function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
-    L = 50.0
-    tf = 8
+    L = 100.0
+    tf = 16
     nx = Int(L / dx) + 1
     ny = nx  # Assuming square domain
     x = range(0, L, length = nx)
     y = range(0, L, length = ny)
     nt = Int(tf / dt)
-    kappa = (1 / 3) * chi  # Gradient energy term
+    if N1/N2 < 10
+        kappa = (1 / 3) * chi
+    else
+        kappa = (2/3)*chi
+    end
 
     # Initial condition: small random perturbation around c0
-    c0 = 0.2
+    c0 = 0.5
     c = c0 .+ 0.02 * (rand(nx, ny) .- 0.5)
 
     # Initialize arrays to store results
@@ -286,7 +327,7 @@ function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
     anim = Animation()
 
     for n = 1:nt
-        println("Time step: $n")
+        println("Time step: $n, Time: $(n*dt)")
 
         # Save the old concentration profile
         c_old = copy(c)
@@ -301,7 +342,7 @@ function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
         problem = NonlinearProblem(residual!, c_guess, p)
 
         # Solve the nonlinear system
-        solver = solve(problem, NewtonRaphson(linsolve = KrylovJL_GMRES()), show_trace = Val(true),trace_level=TraceAll(5))
+        solver = solve(problem, NewtonRaphson(linsolve = KrylovJL_GMRES()), show_trace = Val(false))
         
         # Update c for the next time step
         c_new_vec = solver.u
@@ -327,7 +368,7 @@ function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
 end
 
 # Run the main function
-c_final, c_max, c_min, c_avg, energy, time_vals = impliciteuler_2d(3.0,100.0,1.0,0.25,0.0005,"spline")
+c_final, c_max, c_min, c_avg, energy, time_vals = impliciteuler_2d(3.0,15,1,0.25,0.0005,"analytical")
 
 # Plot max, min, and average concentrations over time
 plt = plot(time_vals, c_max, label = "Max(ϕ)", xlabel = "Time", ylabel = "Concentration",

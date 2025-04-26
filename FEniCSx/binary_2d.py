@@ -1,197 +1,89 @@
 import numpy as np
-from mpi4py import MPI
-import basix
-import ufl
-from basix.ufl import element, mixed_element
-from petsc4py import PETSc
-from dolfinx import fem, mesh, io, log
-from ufl import grad, inner, ln, dx
-from dolfinx.fem.petsc import NonlinearProblem
-from dolfinx.nls.petsc import NewtonSolver
-
+from binary_solver import *
 import matplotlib.pyplot as plt
-
+import matplotlib as mpl
 from multiprocessing import Pool, cpu_count
 from functools import partial
 import csv
 import os
 
-
 #formatting
 plt.rcParams["text.usetex"] = True
 plt.rc('font', family='serif')
-
-"""
-This script implements a simple Backwards Euler method for solving
-the binary CH equation in mixed form
-"""
-
-def cahn_hilliard(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=False):
-    #Simulation parameters
-    Lx = Ly = 20.0
-    nx = ny = int(Lx/deltax)
-
-    asym_factor = (N1/N2)
-    if asym_factor < 0.1:
-        kappa = (1/3)*chi
-    else:
-        kappa = (2/3)*chi
-
-    t = 0.0
-    tend = tend
-    nsteps = int(tend/dt)
-    tvals = np.linspace(0.0,tend,nsteps+1)
-
-    #Create lists for storing energy, phi_min, phi_max
-    energy_list = []
-    phi_min_list = []
-    phi_max_list = []
-    phi_avg_list = []
-
-    #Set up mesh
-    domain = mesh.create_rectangle(MPI.COMM_WORLD, [[0.0,0.0],[Lx, Ly]], [nx,ny])
-    P1 = element("Lagrange",domain.basix_cell(),2)
-    ME = fem.functionspace(domain,mixed_element([P1,P1]))
-    q,v = ufl.TestFunctions(ME)
-
-    #Define solution variables and split 
-    u = fem.Function(ME)
-    u0 = fem.Function(ME)
-
-    #Solution variables
-    c,mu = ufl.split(u)
-    c0,mu0 = ufl.split(u0)
-
-    #Define chemical potential
-    c = ufl.variable(c)
-    f = c*ln(c) + (1-c)*ln(1-c) + chi*c*(1-c)
-    dfdc = ufl.diff(f,c)
-
-    F0 = inner(c,q)*dx - inner(c0,q)*dx + (c*(1-c))*dt*inner(grad(mu),grad(q))*dx
-    F1 = inner(mu,v)*dx - inner(dfdc,v)*dx - kappa*inner(grad(c),grad(v))*dx
-    F = F0 + F1
-
-    #Apply Initial conditions
-    u.x.array[:] = 0.0
-    u.sub(0).interpolate(ic_fun)
-    u.x.scatter_forward()
-    c = u.sub(0)
-    u0.x.array[:] = u.x.array
-
-    #Write to VTK and write ICs
-    if return_data:
-        writer = io.VTXWriter(domain.comm, "PS.bp",[c],"BP4")
-        writer.write(0.0)
-
-    #Compute energy at t =0
-    if return_data:
-        energy_density = fem.form(((1/N1)*c*ln(c) + (1/N2)*(1-c)*ln(1-c) + chi*c*(1-c) + (kappa/2)*inner(grad(c),grad(c)))*dx)
-        total_energy = fem.assemble_scalar(energy_density)
-        energy_list.append(total_energy)
-
-        #Extract c_min and c_max
-        c_min = np.min(c.collapse().x.array)
-        c_max = np.max(c.collapse().x.array)
-        c_avg = np.average(c.collapse().x.array)
-        phi_min_list.append(c_min)
-        phi_max_list.append(c_max)
-        phi_avg_list.append(c_avg)
-
-
-    #Setup solver
-    problem = NonlinearProblem(F, u)
-    solver = NewtonSolver(MPI.COMM_WORLD, problem)
-    solver.convergence_criterion = "residual"
-    solver.atol = 1e-8
-    solver.report = False
-    solver.error_on_nonconvergence=True
-
-    ksp = solver.krylov_solver
-    opts = PETSc.Options()
-    option_prefix = ksp.getOptionsPrefix()
-    opts[f"{option_prefix}ksp_type"] = "preonly"
-    opts[f"{option_prefix}pc_type"] = "lu"
-    ksp.setFromOptions()
-
-    #Introduce skipping for output to output only every nth step
-    stride = stride
-    counter = 0
-
-    # log.set_log_level(log.LogLevel.INFO)
-    while t < tend -1e-8: 
-        #Update t
-        t += dt
-        #Solve
-        res = solver.solve(u)
-        # print(res)
-        # print(f"Step {int(t/dt)}: num iterations: {res[0]}")
-        print(f"For (Chi {chi}, dx {deltax}, dt {dt}): Time {t}: %Complete {(t/tend)*100}, num iterations: {res[0]}")
-
-        #Update u0
-        u0.x.array[:] = u.x.array
-
-        if return_data:
-            #Evaluate total energy and append
-            total_energy = fem.assemble_scalar(energy_density)
-            energy_list.append(total_energy)
-
-            #Phi_min and Phi_max
-            c_min = np.min(c.collapse().x.array)
-            c_max = np.max(c.collapse().x.array)
-            c_avg = np.average(c.collapse().x.array)
-            phi_min_list.append(c_min)
-            phi_max_list.append(c_max)
-            phi_avg_list.append(c_avg)
-
-        #Update counter and write to VTK
-        counter = counter +1
-        if return_data:
-            if counter % stride == 0:
-                writer.write(t)
-
-    #Close VTK file
-    if return_data:
-        writer.close()
-
-    if return_data:
-        return tvals, phi_max_list, phi_min_list, phi_avg_list ,energy_list
-    else:
-        return
-
-"""
-Test case
-"""
-# run_test_case = True
-# def initial_condition(x):
-#     values = 0.5 + 0.02*(0.5-np.random.rand(x.shape[1]))
-#     return values
-
-# if run_test_case:
-
-#     tvals, phi_max, phi_min, phi_avg, energy_vals = cahn_hilliard(initial_condition,chi=6,N1=1,N2=1,stride=1,tend=100,deltax=1.0,dt=0.05,return_data=True)
-        
-#     #Plot
-#     fig, ax1 = plt.subplots()
-#     ax1.plot(tvals,phi_max, label=r"$\phi_{1,\max}$",linestyle="--",color="blue")
-#     ax1.plot(tvals,phi_min,label=r"$\phi_{1,\min}$",linestyle="-.",color="blue")
-#     ax1.plot(tvals,phi_avg,label=r"$\bar{1,\phi}}$",linestyle="-",color="blue")
-#     ax1.set_xlabel(r"Time ($\tilde{t}$)")
-#     ax1.set_ylabel(r"$\phi_{1}$")
-#     ax1.tick_params(axis='y', labelcolor='blue')         
-#     ax1.yaxis.label.set_color('blue')
-#     ax1.axhline(1.0,color="blue")
-#     ax1.axhline(0.0,color="blue")
-#     ax2 = ax1.twinx()
-#     ax2.plot(tvals, energy_vals,linestyle="-", color="red")
-#     ax2.set_ylabel("Total Energy")
-#     ax2.tick_params(axis='y', labelcolor='red')
-#     ax2.yaxis.label.set_color('red')
-#     fig.tight_layout()
 
 
 """
 Running parameter sweep to see stability region
 """
+
+
+def plot_dual_heatmaps_pcolormesh(csv_filename1, csv_filename2):
+    """
+    Reads results from two CSV files (each with columns: chi, deltax, critical_dt)
+    and creates two subplots (one for each CSV file) using pcolormesh with gouraud shading.
+    The subplots share a common colorbar.
+    
+    This function independently extracts the unique chi and deltax values from each CSV file.
+    It then computes a common vmin/vmax from both datasets.
+    """
+    # Read results from each CSV file using the helper function.
+    results1_dict = read_existing_results(csv_filename1)
+    results2_dict = read_existing_results(csv_filename2)
+    
+    # For CSV file 1, extract unique chi and deltax values.
+    chi_vals1 = sorted({chi for (chi, _) in results1_dict.keys()})
+    deltax_vals1 = sorted({deltax for (_, deltax) in results1_dict.keys()})
+    res_list1 = [(chi, deltax, dt) for (chi, deltax), dt in results1_dict.items()]
+    heatmap1 = build_heatmap(chi_vals1, deltax_vals1, res_list1)
+    
+    # For CSV file 2, extract unique chi and deltax values.
+    chi_vals2 = sorted({chi for (chi, _) in results2_dict.keys()})
+    deltax_vals2 = sorted({deltax for (_, deltax) in results2_dict.keys()})
+    res_list2 = [(chi, deltax, dt) for (chi, deltax), dt in results2_dict.items()]
+    heatmap2 = build_heatmap(chi_vals2, deltax_vals2, res_list2)
+    
+    # Determine common color scale from both heatmaps.
+    vmin = min(np.nanmin(heatmap1), np.nanmin(heatmap2))
+    vmax = max(np.nanmax(heatmap1), np.nanmax(heatmap2))
+
+    # Determine x and y lims.
+    chimin = min(np.nanmin(chi_vals1), np.nanmin(chi_vals2))
+    chimax = max(np.nanmax(chi_vals1), np.nanmax(chi_vals2))
+
+    dxmin = min(np.nanmin(deltax_vals1), np.nanmin(deltax_vals2))
+    dxmax = max(np.nanmax(deltax_vals1), np.nanmax(deltax_vals2))
+    
+    # Create a meshgrid for each dataset.
+    X1, Y1 = np.meshgrid(deltax_vals1, chi_vals1)
+    X2, Y2 = np.meshgrid(deltax_vals2, chi_vals2)
+
+
+    
+    # Create subplots.
+    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+    
+    # Plot for CSV file 1.
+    im1 = axs[0].pcolormesh(X1, Y1, heatmap1, shading='auto', cmap="viridis", vmin=vmin, vmax=vmax,norm="log")
+    axs[0].set_title('Analytical')
+    axs[0].set_xlabel(r'$\Delta x$')
+    axs[0].set_ylabel(r'$\chi_{12}$')
+    axs[0].set_xlim((dxmin,dxmax))
+    axs[0].set_ylim((chimin,chimax))
+    
+    # Plot for CSV file 2.
+    im2 = axs[1].pcolormesh(X2, Y2, heatmap2, shading='auto', cmap="viridis", vmin=vmin, vmax=vmax,norm="log")
+    axs[1].set_title('Spline')
+    axs[1].set_xlabel(r'$\Delta x$')
+    axs[1].set_ylabel(r'$\chi_{12}$')
+    axs[1].set_xlim((dxmin,dxmax))
+    axs[1].set_ylim((chimin,chimax))
+    
+    # Create one common colorbar for both subplots.
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.03, 0.7])
+    cbar = fig.colorbar(im2, cax=cbar_ax, orientation='vertical', label=r' $\min(\Delta t)$')
+    
+    plt.tight_layout(rect=[0, 0, 0.93, 1])
+    plt.show()
 
 def get_tend_for_chi(chi):
     if 3 <= chi <= 5:
@@ -200,11 +92,15 @@ def get_tend_for_chi(chi):
         return 20.0
     elif 8 < chi <= 10:
         return 15.0
-    else:
+    elif 10 < chi <= 15:
         return 10.0
+    elif 15 < chi <=18:
+        return 7.0
+    else:
+        return 5.0
 
 
-def find_critical_dt(ic_fun, chi, N1, N2, stride, tend, deltax, dt_start=0.5, dt_min=1e-4):
+def find_critical_dt(sim_func,ic_fun, chi, N1, N2, stride, tend, deltax, dt_start=0.5, dt_min=1e-4):
     """
     For a given set of parameters (chi and deltax), try running the simulation
     starting at dt_start. If it fails (raises an exception), halve dt and try again,
@@ -216,7 +112,7 @@ def find_critical_dt(ic_fun, chi, N1, N2, stride, tend, deltax, dt_start=0.5, dt
         try:
             # Run the simulation with current dt.
             # Set return_data=False to keep things fast.
-            cahn_hilliard(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=False)
+            sim_func(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=False)
         except Exception as e:
             # Simulation failed; optionally print a message and try a smaller dt.
             print(f"chi={chi}, deltax={deltax}, dt={dt} failed with error: {e}")
@@ -227,7 +123,7 @@ def find_critical_dt(ic_fun, chi, N1, N2, stride, tend, deltax, dt_start=0.5, dt
         return dt
     return np.nan
 
-def worker(params):
+def worker(params, sim_func):
     """
     Worker function for multiprocessing.
     Expects a tuple:
@@ -236,7 +132,7 @@ def worker(params):
     """
     chi, deltax, dt_start, dt_min, ic_fun, N1, N2, stride = params
     tend = get_tend_for_chi(chi)
-    critical_dt = find_critical_dt(ic_fun, chi, N1, N2, stride, tend, deltax, dt_start, dt_min)
+    critical_dt = find_critical_dt(sim_func,ic_fun, chi, N1, N2, stride, tend, deltax, dt_start, dt_min)
     return (chi, deltax, critical_dt)
 
 def read_existing_results(csv_filename):
@@ -270,36 +166,27 @@ def append_results_to_csv(csv_filename, results):
         for chi, deltax, dt_val in results:
             writer.writerow({"chi": chi, "deltax": deltax, "critical_dt": dt_val})
 
-def plot_heatmap_from_results(chi_values, deltax_values, results):
+def build_heatmap(chi_values, deltax_values, results_list):
     """
-    Given arrays chi_values and deltax_values and a dictionary of results
-    {(chi, deltax): critical_dt, ...}, create and display a heatmap.
+    Given arrays chi_values and deltax_values and a list of tuples
+    [(chi, deltax, critical_dt), ...], build and return a heatmap array.
     """
     heatmap = np.empty((len(chi_values), len(deltax_values)))
     heatmap[:] = np.nan  # initialize with NaNs
 
-    # Build a lookup dictionary for easier access
-    res_dict = {(float(chi), float(deltax)): dt for chi, deltax, dt in results}
+    # Build a lookup dictionary for easier access.
+    res_dict = {(float(chi), float(deltax)): dt for chi, deltax, dt in results_list}
 
     for i, chi in enumerate(chi_values):
         for j, deltax in enumerate(deltax_values):
             key = (chi, deltax)
             if key in res_dict:
                 heatmap[i, j] = res_dict[key]
-    plt.figure(figsize=(8, 6))
-    plt.imshow(heatmap, extent=[deltax_values[0], deltax_values[-1],
-                                chi_values[0], chi_values[-1]],
-               origin='lower', aspect='auto', cmap='viridis')
-    plt.xlabel('deltax')
-    plt.ylabel('chi')
-    plt.title('Critical dt for Successful Simulation')
-    cbar = plt.colorbar()
-    cbar.set_label('Critical dt')
-    plt.show()
+    return heatmap
 
 
 def run_parameter_study_mp(chi_values, deltax_values, dt_start, dt_min,
-                           ic_fun, N1, N2, stride, num_workers=4, csv_filename="./2d_full_min_dt_fenics.csv"):
+                           ic_fun, N1, N2, stride, num_workers, csv_filename, sim_func):
     """
     For each (chi, deltax) combination, determine the minimum dt (starting from dt_start)
     that allows the simulation to run successfully. The results are saved/appended to a CSV file.
@@ -321,8 +208,9 @@ def run_parameter_study_mp(chi_values, deltax_values, dt_start, dt_min,
     
     new_results = []
     if param_list:
+        worker_func = partial(worker, sim_func=sim_func)
         with Pool(processes=num_workers) as pool:
-            new_results = pool.map(worker, param_list)
+            new_results = pool.map(worker_func, param_list)
         # Append the new results to CSV.
         append_results_to_csv(csv_filename, new_results)
     else:
@@ -335,9 +223,8 @@ def run_parameter_study_mp(chi_values, deltax_values, dt_start, dt_min,
         combined_results.append((chi, deltax, dt_val))
     # Add new results.
     combined_results.extend(new_results)
+    return combined_results
     
-    # Plot heatmap.
-    plot_heatmap_from_results(chi_values, deltax_values, combined_results)
 
 
 if __name__ == '__main__':
@@ -351,11 +238,22 @@ if __name__ == '__main__':
         return values
     
     # Define the parameter ranges.
-    chi_values = np.array([3.0,4.0,5.0,6.0,7.0,8.0])       # Example: 10, 20, 30, 40, 50
-    deltax_values = np.array([0.16,0.2,0.25,0.4,0.5])    
+    chi_values = np.array([3.0,4.0,5.0,6.0,7.0,8.0,10.0,12.0,13.0,14.0,15.0,16.0,17.0, 18.0])   
+    deltax_values = np.array([0.1,0.16,0.2,0.25,0.4,0.5,0.8])    
 
     # Run the parameter study.
+    spline_csv = "./2d_spline_min_dt_fenics.csv"
+
+    analytical_csv = "./2d_full_min_dt_fenics.csv"
+
     run_parameter_study_mp(chi_values, deltax_values,
                            dt_start=0.5, dt_min=1e-4,
                            ic_fun=ic_fun, N1=N1, N2=N2, stride=stride,
-                           num_workers=4, csv_filename="./2d_full_min_dt_fenics.csv")
+                           num_workers=5, csv_filename=spline_csv,sim_func=cahn_hilliard_spline)
+    
+    # run_parameter_study_mp(chi_values, deltax_values,
+    #                        dt_start=(1.0/8192), dt_min=1e-4,
+    #                        ic_fun=ic_fun, N1=N1, N2=N2, stride=stride,
+    #                        num_workers=4, csv_filename=analytical_csv,sim_func=cahn_hilliard_analytical)
+    
+    plot_dual_heatmaps_pcolormesh(analytical_csv,spline_csv)

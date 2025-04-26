@@ -214,13 +214,13 @@ def compute_errors(f_true, f_approx, phi_vals):
 phi_test = np.linspace(1e-16, 1 - 1e-16, 1000)
 
 # Define the range of knot counts to test (from 20 to 1000 in steps of 20)
-knots_range = np.arange(20,700,40)
+knots_range = np.arange(20,1000,30)
 
 # Define two cases:
 # Case 1: chi = 50, N1 = 1, N2 = 1
 chi1, N1_1, N2_1 = 50, 1, 1
 # Case 2: chi = 30, N1 = 1000, N2 = 1
-chi2, N1_2, N2_2 = 15, 1000, 1
+chi2, N1_2, N2_2 = 10, 100, 1
 
 # Initialize lists to store error metrics for each case vs. number of knots
 rmse_case1 = []
@@ -260,27 +260,27 @@ f_spline_case2 = np.array([spline2_fixed(phi) for phi in phi_test])
 ############################################
 
 # Create two subplots side by side.
-fig, (ax1, ax2) = plt.subplots(1, 2, dpi=300)
+fig, (ax1, ax2) = plt.subplots(1, 2, dpi=300,figsize=(8,4))
 
 # --- First subplot: function vs. spline approximation ---
-ax1.plot(phi_test, f_true_case1, label="True (chi=50, N1=N2=1)", lw=2)
-ax1.plot(phi_test, f_spline_case1, label="Spline (chi=50, N1=N2=1)", lw=2, linestyle='--')
-ax1.plot(phi_test, f_true_case2, label="True (chi=30, N1=1000, N2=1)", lw=2)
-ax1.plot(phi_test, f_spline_case2, label="Spline (chi=30, N1=1000, N2=1)", lw=2, linestyle='--')
-ax1.set_xlabel("phi")
-ax1.set_ylabel("fh_deriv")
-ax1.legend(fontsize=8)
+ax1.plot(phi_test, f_true_case1, label=r"Analytical, $\chi_{12}=50, x_{1}=x_{2}=1$", lw=2)
+ax1.plot(phi_test, f_spline_case1, label=r"Spline, $\chi_{12}=50, x_{1}=x_{2}=1$", lw=2, linestyle='--')
+ax1.plot(phi_test, f_true_case2, label=r"Analytical, $\chi_{12}=10, x_{1}=100, x_{2}=1$", lw=2)
+ax1.plot(phi_test, f_spline_case2, label=r"Spline, $\chi_{12}=10, x_{1}=100, x_{2}=1$", lw=2, linestyle='--')
+ax1.set_xlabel(r"$\phi_{1}$")
+ax1.set_ylabel(r"$\frac{\partial f}{\partial \phi_{1}}$")
+ax1.legend(fontsize=8,loc="lower left")
 
 # --- Second subplot: Error metrics vs. number of knots ---
-ax2.plot(knots_values, rmse_case1, marker='o', label="RMSE (chi=50, N1=N2=1)", lw=2)
-ax2.plot(knots_values, mae_case1, marker='D', label="MAE (chi=50, N1=N2=1)", lw=2)
-ax2.plot(knots_values, rmse_case2, marker='*', label="RMSE (chi=30, N1=1000, N2=1)", lw=2)
-ax2.plot(knots_values, mae_case2, marker='h', label="MAE (chi=30, N1=1000, N2=1)", lw=2)
+ax2.plot(knots_values, rmse_case1, marker='o', label=r"RMSE, $\chi_{12}=50, , x_{1}=x_{2}=1$", lw=2)
+ax2.plot(knots_values, mae_case1, marker='D', label=r"MAE, , $\chi_{12}=50, , x_{1}=x_{2}=1$", lw=2)
+ax2.plot(knots_values, rmse_case2, marker='*', label=r"RMSE, $\chi_{12}=10, x_{1}=100, x_{2}=1$", lw=2)
+ax2.plot(knots_values, mae_case2, marker='h', label=r"MAE, $\chi_{12}=10, x_{1}=100, x_{2}=1$", lw=2)
 ax2.set_xscale('log')
 ax2.set_yscale('log')
-ax2.set_xlabel("Number of Knots")
+ax2.set_xlabel(r"m")
 ax2.set_ylabel("Error")
 ax2.legend(fontsize=8)
 
 plt.tight_layout()
-plt.show()
+plt.savefig("./spline_error_pchip_python.png",dpi=300)

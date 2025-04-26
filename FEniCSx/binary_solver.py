@@ -197,7 +197,7 @@ def cahn_hilliard_spline(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_d
     else:
         kappa = (2/3)*chi
 
-    max_iter = 1000
+    max_iter = 100
     rel_tol = 1e-6
     abs_tol = 1e-8
 
@@ -230,7 +230,7 @@ def cahn_hilliard_spline(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_d
     c0,mu0 = ufl.split(u0)
 
     #Spline bits
-    df_spline, d2f_spline = spline_generator(chi,N1,N2,100)
+    df_spline, d2f_spline = spline_generator(chi,N1,N2,800)
 
     quadrature_degree = 2
     Qe=quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=())
@@ -314,8 +314,8 @@ def cahn_hilliard_spline(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_d
         problem.assemble_vector()
         residual_0 = problem.b.norm()
         residual = residual_0
-        if MPI.COMM_WORLD.rank == 0:
-            print(f"Step {int(t/dt)}")
+        # if MPI.COMM_WORLD.rank == 0:
+            # print(f"Step {int(t/dt)}")
         for iteration in range(max_iter):
             if iteration > 0:
                 if residual < abs_tol and rel_error < rel_tol:
@@ -333,6 +333,10 @@ def cahn_hilliard_spline(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_d
             residual = problem.b.norm()
             rel_error = np.abs(residual / residual_0)
             iteration += 1
+        if iteration == max_iter:
+            raise RuntimeError("Maximum number of iterations, exiting") 
+        if residual > abs_tol or rel_error > rel_tol:
+            raise RuntimeError("Simulation did not converge")
             # if MPI.COMM_WORLD.rank == 0:
                 # print(f"    it# {iteration}: residual: {residual}, relative error: {rel_error}")
         print(f"For (Chi {chi}, dx {deltax}, dt {dt}): Time {t}: %Complete {round((t/tend)*100,3)}, num iterations: {iteration}")

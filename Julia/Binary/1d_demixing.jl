@@ -132,13 +132,17 @@ function CH(ϕ, dx, params)
     return f
 end
 
-function mol_solver(chi, N1, N2, dx, L=4.0, tend, energy_method)
+function mol_solver(chi, N1, N2, dx, L, tend, energy_method)
     #Simulation Parameters
     L = L
     tf = tend
     nx = Int(L / dx) + 1
     xvals = range(0, L, length = nx)
-    kappa = (2 / 3) * chi
+    if (N1/N2) < 10
+        kappa = (2 / 3) * chi
+    else
+        kappa = (1/3)*chi
+    end
 
     # Initial condition: small random perturbation around c0
     c0_ = 0.5
@@ -170,14 +174,18 @@ function mol_solver(chi, N1, N2, dx, L=4.0, tend, energy_method)
     return sol
 end
 
-function impliciteuler(chi, N1, N2, dx, dt, energy_method, times_to_plot)
+function impliciteuler(chi, N1, N2, dx, dt, L, tend, energy_method, times_to_plot)
     # Simulation parameters
-    L = 4.0
-    tf = 100.0
+    L = L
+    tf = tend
     nt = Int(round(tf / dt))
     nx = Int(L / dx) + 1
     x = range(0, L, length = nx)
-    kappa = (2 / 3) * chi
+    if (N1/N2) < 10
+        kappa = (2 / 3) * chi
+    else
+        kappa = (1/3)*chi
+    end
 
     # Initial condition: small random perturbation around c₀
     c0_ = 0.5
@@ -195,8 +203,10 @@ function impliciteuler(chi, N1, N2, dx, dt, energy_method, times_to_plot)
     dfdphi = phi -> begin 
         if energy_method == "analytical"
             -2 .* chi .* phi .+ chi - (1/N2).*log.(1-phi) .+ (1/N1).*log.(phi)
-        else
+        elseif energy_method =="spline"
             spline.(phi)
+        else
+            error("Energy method is wrong")
         end
     end
 
@@ -262,11 +272,16 @@ function impliciteuler(chi, N1, N2, dx, dt, energy_method, times_to_plot)
         c_guess = copy(c_old)
     
         # Set up and solve the nonlinear problem for the current time step.
+        term_cond = AbsNormSafeTerminationMode(
+            NonlinearSolve.L2_NORM; protective_threshold = nothing,
+            patience_steps = 100, patience_objective_multiplier = 3,
+            min_max_factor = 1.3,
+            )
         
-
         problem = NonlinearProblem(ie_residual!, c_guess, p)
         solver = solve(problem, NewtonRaphson(linsolve = KrylovJL_GMRES()),
-                        show_trace=Val(false),abstol=1e-8)
+                        show_trace=Val(false),abstol=1e-8,
+                        termination_condition=term_cond)
         c = solver.u
 
         #Check solver residual
@@ -400,28 +415,48 @@ Plot
 Plot mol spline solution for different chi
 """
 
-sol_mol_spline_3 = mol_solver(10, 1, 1, 0.04, 20, "spline")
-sol_mol_spline_4 = mol_solver(20, 1, 1, 0.04, 10, "spline")
-sol_mol_spline_5 = mol_solver(30, 1, 1, 0.04, 5, "spline")
-sol_mol_spline_6 = mol_solver(40, 1, 1, 0.04, 4.0, "spline")
+plot_mol_solver_symmetrical = true
+
+if plot_mol_solver_symmetrical
+
+
+sol_mol_spline_3 = mol_solver(5, 1, 1, 0.1, 4.0, 40, "spline")
+sol_mol_spline_35 = mol_solver(10,1,1,0.1,4.0,15,"spline")
+sol_mol_spline_4 = mol_solver(15, 1, 1, 0.1, 4.0, 10, "spline")
+sol_mol_spline_45 = mol_solver(20, 1, 1, 0.1, 4.0, 8, "spline")
+sol_mol_spline_5 = mol_solver(25, 1, 1, 0.1, 4.0, 5, "spline")
+sol_mol_spline_55 = mol_solver(30, 1, 1, 0.1, 4.0, 4, "spline")
+# sol_mol_spline_6 = mol_solver(40, 1, 1, 0.02, 4.0, 4, "spline")
 
 p7 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+        grid=false,tickfont=Plots.font("Computer Modern", 10),
+        titlefont=Plots.font("Computer Modern",12),
+        legendfont=Plots.font("Computer Modern",10),
+        title=L"\chi = 5"
+)
+
+tvals_ = [0.0,1.0,2.0,3.0,3.5,10.0,20.0,30.0,40.0]
+for t in tvals_
+    plot!(p7,range(0.0,4.0,length(sol_mol_spline_3(0.0))),sol_mol_spline_3(t),label="t=$(t)",linewidth=2)
+end
+
+p75 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
         grid=false,tickfont=Plots.font("Computer Modern", 10),
         titlefont=Plots.font("Computer Modern",12),
         legendfont=Plots.font("Computer Modern",10),
         title=L"\chi = 10"
 )
 
-tvals_ = [0.0,1.0,2.0,3.0,3.5,10.0,20.0]
+tvals_ = [0.0,1.0,2.0,3.0,3.5,10.0,12.0,15.0]
 for t in tvals_
-    plot!(p7,range(0.0,4.0,length(sol_mol_spline_3(0.0))),sol_mol_spline_3(t),label="t=$(t)",linewidth=2)
+    plot!(p75,range(0.0,4.0,length(sol_mol_spline_35(0.0))),sol_mol_spline_35(t),label="t=$(t)",linewidth=2)
 end
 
 p8 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
         grid=false,tickfont=Plots.font("Computer Modern", 10),
         titlefont=Plots.font("Computer Modern",12),
         legendfont=Plots.font("Computer Modern",10),
-        title=L"\chi = 20"
+        title=L"\chi = 15"
 )
 
 tvals_ = [0.0,0.5,1.0,2.0,2.5,5.0,10.0]
@@ -429,11 +464,23 @@ for t in tvals_
     plot!(p8,range(0.0,4.0,length(sol_mol_spline_4(0.0))),sol_mol_spline_4(t),label="t=$(t)",linewidth=2)
 end
 
+p85 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+        grid=false,tickfont=Plots.font("Computer Modern", 10),
+        titlefont=Plots.font("Computer Modern",12),
+        legendfont=Plots.font("Computer Modern",10),
+        title=L"\chi = 20"
+)
+
+tvals_ = [0.0,0.5,1.0,2.0,2.5,5.0,8.0]
+for t in tvals_
+    plot!(p85,range(0.0,4.0,length(sol_mol_spline_45(0.0))),sol_mol_spline_45(t),label="t=$(t)",linewidth=2)
+end
+
 p9 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
         grid=false,tickfont=Plots.font("Computer Modern", 10),
         titlefont=Plots.font("Computer Modern",12),
         legendfont=Plots.font("Computer Modern",10),
-        title=L"\chi = 30"
+        title=L"\chi = 25"
 )
 
 tvals_ = [0.0,0.25,0.5,1.0,1.5,2.0,5.0]
@@ -441,17 +488,59 @@ for t in tvals_
     plot!(p9,range(0.0,4.0,length(sol_mol_spline_5(0.0))),sol_mol_spline_5(t),label="t=$(t)",linewidth=2)
 end
 
-p10 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+p95 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
         grid=false,tickfont=Plots.font("Computer Modern", 10),
         titlefont=Plots.font("Computer Modern",12),
         legendfont=Plots.font("Computer Modern",10),
-        title=L"\chi = 40"
+        title=L"\chi = 30"
 )
 
-tvals_ = [0.0,0.05,0.1,0.5,0.6,0.84,1.0,2.0,4.0]
+tvals_ = [0.0,0.25,0.5,1.0,2.0,3.0,4.0]
 for t in tvals_
-    plot!(p10,range(0.0,4.0,length(sol_mol_spline_6(0.0))),sol_mol_spline_6(t),label="t=$(t)",linewidth=2)
+    plot!(p95,range(0.0,4.0,length(sol_mol_spline_55(0.0))),sol_mol_spline_55(t),label="t=$(t)",linewidth=2)
 end
 
+# p10 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+#         grid=false,tickfont=Plots.font("Computer Modern", 10),
+#         titlefont=Plots.font("Computer Modern",12),
+#         legendfont=Plots.font("Computer Modern",10),
+#         title=L"\chi = 6"
+# )
 
-p_all_3 = plot(p7,p8,p9,p10,layout=(2,2),size=(1000,1000),dpi=300, leftmargin=3mm,bottommargin=3mm,rightmargin=3mm)
+# tvals_ = [0.0,0.25,0.5,1.0,2.0,3.0,4.0]
+# for t in tvals_
+#     plot!(p10,range(0.0,4.0,length(sol_mol_spline_6(0.0))),sol_mol_spline_6(t),label="t=$(t)",linewidth=2)
+# end
+
+p_all_3 = plot(p7,p75,p8,p85,p9,p95,layout=(2,3),size=(1000,1000),dpi=300, leftmargin=3mm,bottommargin=3mm,rightmargin=3mm)
+end
+
+display(p_all_3)
+
+"""
+Testing Asymmetrical Mixture
+"""
+
+# sol_mol_spline_3 = mol_solver(3, 15, 1, 1.0, 128.0, 50, "spline")
+
+# # tvals, sol_be_ana_1, xvals = impliciteuler(2,10,1,1.0,0.01,256.0,15.0,"analytical",[0.0,5.0,8.0,10.0,13.0,15.0])
+
+
+# p7 = plot(xlabel=L"x", ylabel=L"\phi_{1}",
+#         grid=false,tickfont=Plots.font("Computer Modern", 10),
+#         titlefont=Plots.font("Computer Modern",12),
+#         legendfont=Plots.font("Computer Modern",10),
+#         title=L"\chi = 2, x_{1} = 100, x_{2} = 1",
+#         size=(400,400)
+# )
+
+# tvals_ = [0.0,10.0,20.0,30.0,50.0]
+# for t in tvals_
+#     plot!(p7,range(0.0,256.0,length(sol_mol_spline_3(0.0))),sol_mol_spline_3(t),label="t=$(t)",linewidth=2)
+# end
+# # for (t,sol) in zip(tvals,sol_be_ana_1)
+# #     plot!(p7,xvals,sol, label="t=$(t)",linewidth=2)
+# # end
+
+# display(p7)
+

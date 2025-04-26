@@ -10,17 +10,15 @@ plt.rcParams["text.usetex"] = True
 plt.rc('font', family='serif')
 
 
-    
-
 """
 Test Case
 """
 
 def initial_condition(x):
-    values = 0.5 + 0.02*(0.5-np.random.rand(x.shape[1]))
+    values = 0.1 + 0.02*(0.5-np.random.rand(x.shape[1]))
     return values
 
-tvals, phi_max, phi_min, phi_avg, energy_vals = cahn_hilliard_spline(initial_condition,chi=8,N1=1,N2=1,stride=10,tend=20,deltax=0.4,dt=0.1,return_data=True)
+tvals, phi_max, phi_min, phi_avg, energy_vals = cahn_hilliard_spline(initial_condition,chi=3,N1=500,N2=1,stride=10,tend=50,deltax=0.25,dt=0.0001,return_data=True)
         
 #Plot
 fig, ax1 = plt.subplots()

@@ -12,6 +12,8 @@ using Statistics
 Random.seed!(1234)
 
 
+
+
 function impliciteuler(chi,N1,N2,dx,dt)
     L = 4.0
     tf = 20.0
