@@ -4,6 +4,7 @@ using NaNMath
 using LaTeXStrings
 using BSplineKit
 using DifferentialEquations
+using ProgressLogging
 include("./pchip.jl") 
 
 """
@@ -17,7 +18,7 @@ The main output is interfacial_tension.png which compares three things:
 
 Three cases are considered:
 1. N1 = N2 = 1
-2. N1=1000, N2 = 1
+2. N1=100, N2 = 1
 3. N1=1000, N2 = 500
 """
 
@@ -268,7 +269,7 @@ function solve_CH(chi,N1,N2,t_end,energy_method)
     asym_factor = N2/N1
     if asym_factor < 0.1
         L = 4.0
-        nx= 101
+        nx= 201
     else
         L = 4.0
         nx = 401
@@ -302,12 +303,11 @@ function solve_CH(chi,N1,N2,t_end,energy_method)
 
     function ode_system!(du,u,p,t)
         du .= CH(u,dx,params)
-        println(t)
     end
 
     # Set up the problem
     prob = ODEProblem(ode_system!, ϕ₀, (0.0, t_end))
-    sol = solve(prob, TRBDF2(), reltol=1e-6, abstol=1e-8)
+    sol = solve(prob, TRBDF2(), reltol=1e-6, abstol=1e-8,maxiters=1e7,progress=true)
     ϕ_end=sol(t_end)
 
     σ_end = compute_interfacial_tension(ϕ_end, xvals, kappa)
@@ -318,61 +318,61 @@ end
 Compute IFT using analytical formula
 """
 
-# chi_vals1 = range(2.5,50,length=100)
-# chi_vals2 = range(0.7,12.5,100)
-# chi_vals3 = range(0.003,0.075,length=100)
+chi_vals1 = range(2.5,50,length=100)
+chi_vals2 = range(0.7,12.5,100)
+chi_vals3 = range(0.003,0.075,length=100)
 
-# ift_vals_analytical1 = zeros(length(chi_vals1))
-# ift_vals_analytical2 = zeros(length(chi_vals2))
-# ift_vals_analytical3 = zeros(length(chi_vals3))
+ift_vals_analytical1 = zeros(length(chi_vals1))
+ift_vals_analytical2 = zeros(length(chi_vals2))
+ift_vals_analytical3 = zeros(length(chi_vals3))
 
 
-# for i in 1:length(chi_vals1)
-#     ift_vals_analytical1[i]= interfacial_tension(chi_vals1[i],1,1,"analytical")
-#     ift_vals_analytical2[i]= interfacial_tension(chi_vals2[i],100,1,"analytical")
-#     ift_vals_analytical3[i] = interfacial_tension(chi_vals3[i],1000,500,"analytical")
-# end
+for i in 1:length(chi_vals1)
+    ift_vals_analytical1[i]= interfacial_tension(chi_vals1[i],1,1,"analytical")
+    ift_vals_analytical2[i]= interfacial_tension(chi_vals2[i],100,1,"analytical")
+    ift_vals_analytical3[i] = interfacial_tension(chi_vals3[i],1000,500,"analytical")
+end
 
 
 # """
 # Compute IFT using Simulations
 # """
-# chi_test1 = [3.0,4.0,5.0,6.0,7.0,10.0,12.0,15.0,18.0,20.0,22.0,24.0,27.0,30.0,33.0,35.0,38.0,40.0,45.0]
-# ift_vals_spline1 = zeros(length(chi_test1))
-# ift_vals_ana1 = zeros(length(chi_test1))
+chi_test1 = [3.0,4.0,5.0,6.0,7.0,10.0,12.0,15.0,18.0,20.0,22.0,24.0,27.0,30.0,33.0,35.0,38.0,40.0,45.0]
+ift_vals_spline1 = zeros(length(chi_test1))
+ift_vals_ana1 = zeros(length(chi_test1))
 
-# for i in 1:length(chi_test1)
-#     if chi_test1[i] < 10
-#         t_end = 100
-#     elseif chi_test1[i] < 20
-#         t_end = 15
-#     elseif chi_test1[i] < 25
-#         t_end = 6
-#     elseif chi_test1[i] < 30
-#         t_end = 5
-#     elseif chi_test1[i] < 40
-#         t_end = 4
-#     else
-#         t_end = 1.5
-#     end
-#     println(t_end)
-#     println(chi_test1[i])
-#     ift_vals_spline1[i] = solve_CH(chi_test1[i],1,1,t_end,"spline")
-#     println("beep")
+for i in 1:length(chi_test1)
+    if chi_test1[i] < 10
+        t_end = 100
+    elseif chi_test1[i] < 20
+        t_end = 15
+    elseif chi_test1[i] < 25
+        t_end = 6
+    elseif chi_test1[i] < 30
+        t_end = 5
+    elseif chi_test1[i] < 40
+        t_end = 4
+    else
+        t_end = 1.5
+    end
+    println(t_end)
+    println(chi_test1[i])
+    ift_vals_spline1[i] = solve_CH(chi_test1[i],1,1,t_end,"spline")
+    println("beep")
 
-#     try
-#         sol_val = solve_CH(chi_test1[i],1,1,t_end,"analytical")
-#         ift_vals_ana1[i] = sol_val
-#     catch err
-#         ift_vals_ana1[i] = NaN
-#         # @warn "Error computing solve_CH with ana for chi = $(chi_vals3[i]): $err"
-#     end
+    try
+        sol_val = solve_CH(chi_test1[i],1,1,t_end,"analytical")
+        ift_vals_ana1[i] = sol_val
+    catch err
+        ift_vals_ana1[i] = NaN
+        # @warn "Error computing solve_CH with ana for chi = $(chi_vals3[i]): $err"
+    end
 
     
-# end
+end
 
 
-chi_test2 = [0.8,1.1,2.4]
+chi_test2 = [0.8,1.1,1.5,2.0,2.4]
 ift_vals_spline2 = zeros(length(chi_test2))
 ift_vals_ana2 = zeros(length(chi_test2))
 
@@ -386,65 +386,61 @@ for i in 1:length(chi_test2)
     elseif chi_test2[i] < 2.0
         t_end = 3.2
     elseif chi_test2[i] < 2.4
-        t_end = 2.5
+        t_end = 2.35
     else
-        t_end = 2.5
+        t_end = 2.2
     end
     println(t_end)
     println(chi_test2[i])
     ift_vals_spline2[i] = solve_CH(chi_test2[i],100,1,t_end,"spline")
     println("beep")
 
-    if chi_test2[i] < 1.5
-        try
-            sol_val = solve_CH(chi_test2[i],100,1,t_end,"analytical")
-            ift_vals_ana2[i] = sol_val
-            println("beep_ana")
-        catch err
-            ift_vals_ana2[i] = NaN
-            # @warn "Error computing solve_CH with ana for chi = $(chi_vals3[i]): $err"
-        end
-    else
+    try
+        sol_val = solve_CH(chi_test2[i],100,1,t_end,"analytical")
+        ift_vals_ana2[i] = sol_val
+        println("beep_ana")
+    catch err
         ift_vals_ana2[i] = NaN
+        # @warn "Error computing solve_CH with ana for chi = $(chi_vals3[i]): $err"
     end
 
     
 end
 
 
-# chi_test3 = range(0.004,0.07,length=15)
-# ift_vals_spline3 = zeros(length(chi_test3))
-# ift_vals_ana3 = zeros(length(chi_test3))
+chi_test3 = range(0.004,0.07,length=15)
+ift_vals_spline3 = zeros(length(chi_test3))
+ift_vals_ana3 = zeros(length(chi_test3))
 
-# for i in 1:length(chi_test3)
-#     if chi_test3[i] < 0.01
-#         t_end = 1500
-#     elseif chi_test3[i] < 0.02
-#         t_end = 600
-#     elseif chi_test3[i] < 0.03
-#         t_end = 400
-#     elseif chi_test3[i] < 0.04
-#         t_end = 200
-#     elseif chi_test3[i] < 0.05
-#         t_end = 150
-#     else
-#         t_end = 100
-#     end
-#     println(t_end)
-#     println(chi_test3[i])
-#     ift_vals_spline3[i] = solve_CH(chi_test3[i],1000,500,t_end,"spline")
-#     println("beep")
+for i in 1:length(chi_test3)
+    if chi_test3[i] < 0.01
+        t_end = 1500
+    elseif chi_test3[i] < 0.02
+        t_end = 600
+    elseif chi_test3[i] < 0.03
+        t_end = 400
+    elseif chi_test3[i] < 0.04
+        t_end = 200
+    elseif chi_test3[i] < 0.05
+        t_end = 150
+    else
+        t_end = 100
+    end
+    println(t_end)
+    println(chi_test3[i])
+    ift_vals_spline3[i] = solve_CH(chi_test3[i],1000,500,t_end,"spline")
+    println("beep")
 
-#     try
-#         sol_val = solve_CH(chi_test3[i],1000,500,t_end,"analytical")
-#         ift_vals_ana3[i] = sol_val
-#     catch err
-#         ift_vals_ana3[i] = NaN
-#         # @warn "Error computing solve_CH with ana for chi = $(chi_vals3[i]): $err"
-#     end
+    try
+        sol_val = solve_CH(chi_test3[i],1000,500,t_end,"analytical")
+        ift_vals_ana3[i] = sol_val
+    catch err
+        ift_vals_ana3[i] = NaN
+        # @warn "Error computing solve_CH with ana for chi = $(chi_vals3[i]): $err"
+    end
 
     
-# end
+end
 
 
 
@@ -456,16 +452,16 @@ Plot
 
 chicrit(N1,N2) = ((sqrt(N1) + sqrt(N2))^2)/(2*N1*N2)
 
-p = plot(size=(1200, 800),dpi=300,grid=false)
+p = plot(size=(600, 400),dpi=300,grid=false)
 plot!(p,legend=:topleft,
     xlabel=L"\chi_{12}/\chi_{C}", ylabel=L"\textrm{Scaled \ Interfacial \ Tension} \ \tilde{\sigma}",
     tickfont=Plots.font("Computer Modern", 10),
     legendfont=Plots.font("Computer Modern",8)
     )
 
-# plot!(p,chi_vals1./2,ift_vals_analytical1,label=L"\textrm{Analytical (Full)}, x_{1} = x_{2} = 1",color="black",linewidth=2)
-# plot!(p,chi_test1./2,ift_vals_spline1,label=L"\textrm{Simulation (Spline)}, x_{1} = x_{2} = 1",seriestype=:scatter,markershape=:+,color="black",markersize=7)
-# plot!(p,chi_test1./2,ift_vals_ana1,label=L"\textrm{Simulation (Full)}, x_{1} = x_{2} = 1",seriestype=:scatter,markershape=:diamond, color="black",markeralpha=0.5,markersize=6)
+plot!(p,chi_vals1./2,ift_vals_analytical1,label=L"\textrm{Analytical (Full)}, x_{1} = x_{2} = 1",color="black",linewidth=2)
+plot!(p,chi_test1./2,ift_vals_spline1,label=L"\textrm{Simulation (Spline)}, x_{1} = x_{2} = 1",seriestype=:scatter,markershape=:+,color="black",markersize=7)
+plot!(p,chi_test1./2,ift_vals_ana1,label=L"\textrm{Simulation (Full)}, x_{1} = x_{2} = 1",seriestype=:scatter,markershape=:diamond, color="black",markeralpha=0.5,markersize=6)
 
 
 
@@ -474,6 +470,8 @@ plot!(p,chi_test2./(chicrit(100,1)),ift_vals_spline2,label=L"\textrm{Simulation 
 plot!(p,chi_test2./(chicrit(100,1)),ift_vals_ana2,label=L"\textrm{Simulation (Full)} , x_{1} = 100, x_{2} = 1",seriestype=:scatter,markershape=:diamond, color="red",markeralpha=0.5,markersize=6)
 
 
-# plot!(p,chi_vals3./(chicrit(1000,500)),ift_vals_analytical3,label=L"\textrm{Analytical (Full)}, x_{1} = 1000, x_{2} = 500",color="blue",linewidth=2)
-# plot!(p,chi_test3./(chicrit(1000,500)),ift_vals_spline3,label=L"\textrm{Simulation (Spline)} , x_{1} = 1000, x_{2} = 500",seriestype=:scatter,markershape=:+,color="blue",markersize=7)
-# plot!(p,chi_test3./(chicrit(1000,500)),ift_vals_ana3,label=L"\textrm{Simulation (Full)} , x_{1} = 1000, x_{2} = 500",seriestype=:scatter,markershape=:diamond, color="blue",markeralpha=0.5,markersize=6)
+plot!(p,chi_vals3./(chicrit(1000,500)),ift_vals_analytical3,label=L"\textrm{Analytical (Full)}, x_{1} = 1000, x_{2} = 500",color="blue",linewidth=2)
+plot!(p,chi_test3./(chicrit(1000,500)),ift_vals_spline3,label=L"\textrm{Simulation (Spline)} , x_{1} = 1000, x_{2} = 500",seriestype=:scatter,markershape=:+,color="blue",markersize=7)
+plot!(p,chi_test3./(chicrit(1000,500)),ift_vals_ana3,label=L"\textrm{Simulation (Full)} , x_{1} = 1000, x_{2} = 500",seriestype=:scatter,markershape=:diamond, color="blue",markeralpha=0.5,markersize=6)
+
+savefig("./interface_tension.png")

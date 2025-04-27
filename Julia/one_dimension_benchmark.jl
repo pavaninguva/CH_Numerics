@@ -365,7 +365,7 @@ function param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method
 end
 
 
-chi_values = 6:1:30  
+chi_values = 6:1:30 
 dx_values = [0.02,0.025,0.04,0.05,0.08,0.1,0.16,0.2] 
 
 min_dt_matrix_spline = param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline",results_file="../1d_dt_bdf_spline.csv")
