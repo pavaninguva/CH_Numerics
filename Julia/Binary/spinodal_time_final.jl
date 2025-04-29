@@ -584,7 +584,7 @@ p2 = scatter(
     ylabel = L"\tau",
     legend = :topleft,size=(400,400),tickfont=Plots.font("Computer Modern", 12), grid=false,
     legendfont=Plots.font("Computer Modern",8),dpi=300,xaxis=:log, yaxis=:log,
-    title="Backwards Euler, Full",
+    title="Backwards Euler, Spline",
     titlefont=Plots.font("Computer Modern",12)
 )
 

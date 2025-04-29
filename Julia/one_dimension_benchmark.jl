@@ -368,8 +368,8 @@ end
 chi_values = 6:1:30 
 dx_values = [0.02,0.025,0.04,0.05,0.08,0.1,0.16,0.2] 
 
-min_dt_matrix_spline = param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline",results_file="../1d_dt_bdf_spline.csv")
-min_dt_matrix_analytical = param_sweep_min_dt(chi_values,dx_values,N1=1.0,N2=1.0,energy_method="analytical",results_file="../1d_dt_bdf_ana.csv")
+min_dt_matrix_spline = param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline",results_file="./Binary/1d_stability_data/1d_dt_bdf_spline.csv")
+min_dt_matrix_analytical = param_sweep_min_dt(chi_values,dx_values,N1=1.0,N2=1.0,energy_method="analytical",results_file="./Binary/1d_stability_data/1d_dt_bdf_ana.csv")
 
 log_min_dt_spline = log10.(min_dt_matrix_spline)
 finite_values_spline = log_min_dt_spline[.!isnan.(log_min_dt_spline)]
@@ -487,7 +487,7 @@ function run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="anal
     return largest_stable_dt
 end
 
-dt_vals_backwards_euler_ana = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="analytical", dt_start=0.25, dt_min=1e-4,results_file="../1d_dt_ie_ana.csv")
+dt_vals_backwards_euler_ana = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="analytical", dt_start=0.25, dt_min=1e-4,results_file="./Binary/1d_stability_data/1d_dt_ie_ana.csv")
 log_dt_be_ana = log10.(dt_vals_backwards_euler_ana)
 finite_values_be_ana = log_dt_be_ana[.!isnan.(log_dt_be_ana)]
 cmin_be_ana = minimum(finite_values_be_ana)
@@ -503,7 +503,7 @@ p3= heatmap(dx_values, chi_values, log_dt_be_ana,
     titlefont=Plots.font("Computer Modern",12),size=(500,500))
 
 
-dt_vals_backwards_euler_spline = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline", dt_start=0.25, dt_min=1e-4,results_file="../1d_dt_ie_spline.csv")
+dt_vals_backwards_euler_spline = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline", dt_start=0.25, dt_min=1e-4,results_file="./Binary/1d_stability_data/1d_dt_ie_spline.csv")
 log_dt_be_spline = log10.(dt_vals_backwards_euler_spline)
 finite_values_be_spline = log_dt_be_spline[.!isnan.(log_dt_be_spline)]
 cmin_be_spline = minimum(finite_values_be_spline)
@@ -520,4 +520,4 @@ p4= heatmap(dx_values, chi_values, log_dt_be_spline,
 
 
 p_all = plot(p1,p2,p3,p4, layout=4, size=(1400,1400), dpi=300, leftmargin=3mm)
-# savefig(p_all,"1d_benchmark.png")
+# savefig(p_all,"1d_benchmark1.png")
