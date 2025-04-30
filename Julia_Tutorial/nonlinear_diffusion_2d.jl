@@ -3,6 +3,8 @@ using LinearAlgebra
 using Plots
 using SparseArrays
 using NonlinearSolve
+using WriteVTK
+using Printf
 
 # Define parameters
 Lx = 1.0                   # Length of the domain in x direction
@@ -12,7 +14,7 @@ Ny = 50                    # Number of grid points in y direction
 dx = Lx / (Nx - 1)         # Spatial step size in x
 dy = Ly / (Ny - 1)         # Spatial step size in y
 dt = 1e-3                  # Time step size
-t_final = 0.01             # Final time
+t_final = 0.1             # Final time
 Nt = Int(t_final / dt)     # Number of time steps
 D0 = 1.0                   # Constant diffusion coefficient
 
@@ -76,11 +78,24 @@ end
 u_matrix = zeros(Nt, Ny, Nx)
 u_matrix[1, :, :] = u0
 
+vtk_grid(@sprintf("snapshot_%04d", 0), x, y) do vtk
+    vtk["u"]    = u_matrix[1, :, :]
+    vtk["time"] = fill(0.0, size(u_matrix[1, :, :]))
+end
+
 # Time-stepping loop
 for n in 2:Nt
     u_old = u_matrix[n-1, :, :]
     u_new = solve_nonlinear_diffusion(u_old, dt, dx, dy)
     u_matrix[n, :, :] = u_new
+    
+
+    fname = @sprintf("snapshot_%04d", n-1)  # 0001, 0002, …
+    vtk_grid(fname, x, y) do vtk
+        vtk["u"] = u_new
+        # optionally tag with time
+        vtk["time"] = fill((n-1)*dt, size(u_new))
+    end
     println(n)
 end
 
