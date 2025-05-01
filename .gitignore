@@ -3,6 +3,8 @@
 
 #Misc sim files
 *.gif
+*.vti
+be_*
 
 #Code noise
 *.pyc

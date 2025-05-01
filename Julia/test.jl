@@ -7,9 +7,10 @@ using Trapz
 using IterativeSolvers
 using Random
 using Statistics
-# using BSplineKit
 using Sundials
-include("./pchip.jl") 
+include("./pchip.jl")
+using WriteVTK
+using Printf
 
 Random.seed!(1234)
 
@@ -24,8 +25,38 @@ function dfdphi_ana(phi, chi, N1, N2)
     return (1/N1)*log.(phi) - (1/N2)*log.(1 .- phi) + chi * (1 .- 2 .* phi)
 end
 
-function spline_generator(chi, N1, N2, knots)
+function compute_energy(x,y,dx,c,chi,N1,N2,kappa)
+    nx = length(x)
+    ny = length(y)
 
+    grad_cx = zeros(nx, ny)
+    grad_cy = zeros(nx, ny)
+
+    # Interior points
+    for i in 2:nx-1
+        for j in 2:ny-1
+            grad_cx[i,j] = (c[i+1,j] - c[i-1,j]) / (2 * dx)
+            grad_cy[i,j] = (c[i,j+1] - c[i,j-1]) / (2 * dx)
+        end
+    end
+
+    # Boundaries (forward/backward differences)
+    for j in 1:ny
+        grad_cx[1,j] = (c[2,j] - c[1,j]) / dx  # Forward difference
+        grad_cx[nx,j] = (c[nx,j] - c[nx-1,j]) / dx  # Backward difference
+    end
+
+    for i in 1:nx
+        grad_cy[i,1] = (c[i,2] - c[i,1]) / dx  # Forward difference
+        grad_cy[i,ny] = (c[i,ny] - c[i,ny-1]) / dx  # Backward difference
+    end
+
+    energy_density = flory_huggins(c, chi, N1, N2) .+ (kappa / 2) * (grad_cx.^2 .+ grad_cy.^2)
+
+    return trapz((x,y),energy_density)
+end
+
+function spline_generator(chi, N1, N2, knots)
 
     function tanh_sinh_spacing(n, β)
         points = 0.5 * (1 .+ tanh.(β .* (2 * collect(0:n-1) / (n-1) .- 1)))
@@ -59,72 +90,6 @@ function spline_generator(chi, N1, N2, knots)
     spline = pchip(phi_vals, f_vals)
     return spline
 end
-
-# function spline_generator(χ,N1,N2,knots=100)
-#     #Def log terms 
-#     log_terms(ϕ) =  (ϕ./N1).*log.(ϕ) .+ ((1 .-ϕ)./N2).*log.(1 .-ϕ)
-
-#     function tanh_sinh_spacing(n, β)
-#         points = 0.5 * (1 .+ tanh.(β .* (2 * collect(0:n-1) / (n-1) .- 1)))
-#         return points
-#     end
-    
-#     phi_vals_ = collect(tanh_sinh_spacing(knots-2,14))
-#     f_vals_ = log_terms(phi_vals_)
-
-#     #Append boundary values
-#     phi_vals = pushfirst!(phi_vals_,0)
-#     f_vals = pushfirst!(f_vals_,0)
-#     push!(phi_vals,1)
-#     push!(f_vals,0)
-
-#     spline = BSplineKit.interpolate(phi_vals, f_vals,BSplineOrder(4))
-#     d_spline = Derivative(1)*spline
-
-#     df_spline(phi) = d_spline.(phi) .+ χ.*(1 .- 2*phi)
-
-#     return df_spline
-# end
-
-### Alternative function that constructs the spline directly on dfdphi
-# function spline_generator(chi,N1, N2, knots)
-
-#     function dfdphi(phi)
-#         return (1/N1).*log.(phi) - (1/N2).*(log.(1 .- phi)) .+ ((1/N1)-(1/N2)) .+ chi.*(1 .- 2 .*phi)
-#     end
-
-#     function tanh_sinh_spacing(n, β)
-#         points = 0.5 * (1 .+ tanh.(β .* (2 * collect(0:n-1) / (n-1) .- 1)))
-#         return points
-#     end
-    
-#     phi_vals_ = collect(tanh_sinh_spacing(knots-4,14))
-#     #Push extravals
-
-#     #Compute dfdphi and phi
-#     pushfirst!(phi_vals_,1e-16)
-#     push!(phi_vals_,1.0-1e-16)
-
-#     dfdphi_vals = dfdphi(phi_vals_)
-
-#     #Generate phi_vals
-#     eps_left = 1e-40
-#     eps_right = BigFloat(1.0) - BigFloat(eps_left)
-
-#     #Push less savory dfdphi values
-#     pushfirst!(dfdphi_vals,dfdphi(eps_left))
-#     push!(dfdphi_vals,Float64(dfdphi(eps_right)))
-
-#     phi_vals = pushfirst!(phi_vals_,0.0)
-#     push!(phi_vals,1.0)
-
-
-#     spline = BSplineKit.interpolate(phi_vals,dfdphi_vals,BSplineOrder(3))
-
-#     df_spline(phi) = spline(phi)
-    
-#     return df_spline
-# end
 
 
 # Residual function with Neumann boundary conditions
@@ -299,9 +264,9 @@ function residual!(F, c_new, p)
     end
 end
 
-function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
-    L = 100.0
-    tf = 16
+function impliciteuler_2d(chi, N1, N2, dx, L, dt, tf, energy_method,save_vtk=false)
+    L = L
+    tf = tf
     nx = Int(L / dx) + 1
     ny = nx  # Assuming square domain
     x = range(0, L, length = nx)
@@ -317,14 +282,22 @@ function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
     c0 = 0.5
     c = c0 .+ 0.02 * (rand(nx, ny) .- 0.5)
 
-    # Initialize arrays to store results
-    c_max = zeros(nt)
-    c_min = zeros(nt)
-    c_avg = zeros(nt)
-    energy = zeros(nt)
+    #Store ICs in VTK
+    if save_vtk
+        vtk_grid(@sprintf("snapshot_%04d", 0), x, y) do vtk
+            vtk["u"]    = c
+            vtk["time"] = fill(0.0, size(c))
+        end
+    end
 
-    # Create an animation object
-    anim = Animation()
+    # Initialize arrays to store results
+    c_avg = zeros(nt+1)
+    energy = zeros(nt+1)
+
+    c_avg[1] = mean(c)
+    energy[1] = compute_energy(x,y,dx,c,chi,N1,N2,kappa)
+
+    stride = 10
 
     for n = 1:nt
         println("Time step: $n, Time: $(n*dt)")
@@ -335,11 +308,11 @@ function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
         # Parameters to pass to the residual function
         p = (c_old = c_old, dt = dt, dx = dx, kappa = kappa, chi = chi, nx = nx, ny = ny, N1 = N1, N2 = N2, energy_method=energy_method)
 
-        # Initial guess for c_new
-        c_guess = copy(c_old)
+        # # Initial guess for c_new
+        # c_guess = copy(c_old)
 
         # Create the NonlinearProblem
-        problem = NonlinearProblem(residual!, c_guess, p)
+        problem = NonlinearProblem(residual!, c_old, p)
 
         # Solve the nonlinear system
         solver = solve(problem, NewtonRaphson(linsolve = KrylovJL_GMRES()), show_trace = Val(false))
@@ -349,29 +322,67 @@ function impliciteuler_2d(chi, N1, N2, dx, dt, energy_method)
         c = reshape(c_new_vec, nx, ny)
 
         # Compute statistics for plotting
-        # c_avg[n] = (1/L^2)*trapz((x,y),c)
-        c_avg[n] = mean(c)
-        c_max[n] = maximum(c)
-        c_min[n] = minimum(c)
+        c_avg[n+1] = mean(c)
+        energy[n+1] = compute_energy(x,y,dx,c,chi,N1,N2,kappa)
 
-
-        p = heatmap(x, y, c, color=:viridis, title="Time step: $n", xlabel="x", ylabel="y", colorbar=true, interpolate=true)
-        frame(anim, p)  # Save the frame to the animation
+        if save_vtk && (n % stride == 0)
+            vtk_grid(@sprintf("snapshot_%04d", n), x, y) do vtk
+                vtk["u"]    = c
+                vtk["time"] = fill(n*dt, size(c))
+            end
+        end
 
     end
     # Save the animation as a GIF
-    gif(anim, "concentration_field.gif", fps=50)
-    time_vals = (1:nt) * dt
+    time_vals = range(0,tf,nt+1)
 
     # Return the final concentration profile and computed data
-    return c, c_max, c_min, c_avg, energy, time_vals
+    return c_avg, energy, time_vals
 end
 
-# Run the main function
-c_final, c_max, c_min, c_avg, energy, time_vals = impliciteuler_2d(3.0,15,1,0.25,0.0005,"analytical")
+"""
+Backwards Euler, Full
+"""
+c_avg_be_full1, energy_be_full1, time_vals_be_full1 = impliciteuler_2d(6.0,1,1,0.4,20,0.1,50,"analytical",false)
+c_avg_be_full2, energy_be_full2, time_vals_be_full2 = impliciteuler_2d(6.0,1,1,0.2,20,0.05,50,"analytical",false)
+c_avg_be_full3, energy_be_full3, time_vals_be_full3 = impliciteuler_2d(6.0,1,1,0.1,20,0.025,50,"analytical",true)
 
-# Plot max, min, and average concentrations over time
-plt = plot(time_vals, c_max, label = "Max(ϕ)", xlabel = "Time", ylabel = "Concentration",
-           title = "Concentration Extremes and Average over Time")
-plot!(time_vals, c_min, label = "Min(ϕ)")
-plot!(time_vals, c_avg, label = "Average(ϕ)")
+
+
+p1 = plot(
+    xlabel = L"t",
+    ylabel = L"\bar{\phi}_{1}",
+    grid  = false,
+    y_guidefontcolor   = :blue,
+    y_foreground_color_axis   = :blue,
+    y_foreground_color_text   = :blue,
+    y_foreground_color_border = :blue,
+    tickfont   = Plots.font("Computer Modern", 10),
+    titlefont  = Plots.font("Computer Modern", 11),
+    legendfont = Plots.font("Computer Modern", 8),
+    ylims      = (0.45,0.55),
+  )
+
+plot!(p1, time_vals_be_full1, c_avg_be_full1; color = :blue, seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:blue, markersize=2, markerstrokewidth=0, markerstrokecolor=:blue, label = L"\Delta x = 0.4, \Delta t = 0.1")
+plot!(p1, time_vals_be_full2, c_avg_be_full2; color = :blue, linestyle=:solid, label = L"\Delta x = 0.2, \Delta t = 0.05")
+plot!(p1, time_vals_be_full3, c_avg_be_full3; color = :blue, linestyle=:dot, label = L"\Delta x = 0.1, \Delta t = 0.025")
+p1_axis2 = twinx(p1)
+
+plot!(
+  p1_axis2,
+  time_vals_be_full1,
+  energy_be_full1;
+  color         = :red,
+  ylabel        = L"\mathrm{Energy}",
+  label         = "",
+  y_guidefontcolor   = :red,
+  y_foreground_color_axis   = :red,
+  y_foreground_color_text   = :red,
+  y_foreground_color_border = :red,
+  tickfont   = Plots.font("Computer Modern", 10),
+  seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:red, markersize=2, markerstrokewidth=0, markerstrokecolor=:red,
+)
+plot!(p1_axis2,time_vals_be_full2,energy_be_full2;color=:red,linestyle=:solid,label="")
+plot!(p1_axis2,time_vals_be_full3,energy_be_full3;color=:red,linestyle=:dot,label="")
+
+display(p1)

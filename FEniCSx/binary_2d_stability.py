@@ -64,7 +64,7 @@ def plot_dual_heatmaps_pcolormesh(csv_filename1, csv_filename2):
     
     # Plot for CSV file 1.
     im1 = axs[0].pcolormesh(X1, Y1, heatmap1, shading='auto', cmap="viridis", vmin=vmin, vmax=vmax,norm="log")
-    axs[0].set_title('Analytical')
+    axs[0].set_title('Full')
     axs[0].set_xlabel(r'$\Delta x$')
     axs[0].set_ylabel(r'$\chi_{12}$')
     axs[0].set_xlim((dxmin,dxmax))
