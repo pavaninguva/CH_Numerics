@@ -37,7 +37,7 @@ Both the analytical and spline implementations are included.
 Analytical
 """
 
-def cahn_hilliard_analytical(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=False):
+def cahn_hilliard_analytical(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=False, return_vtk=False):
     #Simulation parameters
     Lx = Ly = 20.0
     nx = ny = int(Lx/deltax)
@@ -91,7 +91,7 @@ def cahn_hilliard_analytical(ic_fun, chi, N1, N2, stride, tend, deltax, dt, retu
     u0.x.array[:] = u.x.array
 
     #Write to VTK and write ICs
-    if return_data:
+    if return_vtk:
         writer = io.VTXWriter(domain.comm, "PS.bp",[c],"BP4")
         writer.write(0.0)
 
@@ -157,12 +157,12 @@ def cahn_hilliard_analytical(ic_fun, chi, N1, N2, stride, tend, deltax, dt, retu
 
         #Update counter and write to VTK
         counter = counter +1
-        if return_data:
+        if return_vtk:
             if counter % stride == 0:
                 writer.write(t)
 
     #Close VTK file
-    if return_data:
+    if return_vtk:
         writer.close()
 
     if return_data:
@@ -186,7 +186,7 @@ def spline_generator(chi, N1, N2, knots):
     return df_spline, d2f_spline
 
 
-def cahn_hilliard_spline(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=False):
+def cahn_hilliard_spline(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=False, return_vtk = False):
     #Simulation parameters
     Lx = Ly = 20.0
     nx = ny = int(Lx/deltax)
@@ -272,9 +272,11 @@ def cahn_hilliard_spline(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_d
     u0.x.array[:] = u.x.array
 
     #Write to VTK and write ICs
-    if return_data:
+    if return_vtk:
         writer = io.VTXWriter(domain.comm, "sim_spline.bp",[c],"BP4")
         writer.write(0.0)
+
+    if return_data:
 
         #Compute energy at t =0
         energy_density = fem.form(((1/N1)*c*ln(c) + (1/N2)*(1-c)*ln(1-c) + chi*c*(1-c) + (kappa/2)*inner(grad(c),grad(c)))*dx)
@@ -359,12 +361,12 @@ def cahn_hilliard_spline(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_d
 
         #Update counter and write to VTK
         counter = counter +1
-        if return_data:
+        if return_vtk:
             if counter % stride == 0:
                 writer.write(t)
 
     #Close VTK file
-    if return_data:
+    if return_vtk:
         writer.close()
 
     if return_data:

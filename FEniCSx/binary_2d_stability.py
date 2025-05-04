@@ -112,7 +112,7 @@ def find_critical_dt(sim_func,ic_fun, chi, N1, N2, stride, tend, deltax, dt_star
         try:
             # Run the simulation with current dt.
             # Set return_data=False to keep things fast.
-            sim_func(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=False)
+            sim_func(ic_fun, chi, N1, N2, stride, tend, deltax, dt, return_data=False, return_vtk=False)
         except Exception as e:
             # Simulation failed; optionally print a message and try a smaller dt.
             print(f"chi={chi}, deltax={deltax}, dt={dt} failed with error: {e}")

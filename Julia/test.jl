@@ -11,7 +11,8 @@ using Sundials
 include("./pchip.jl")
 using WriteVTK
 using Printf
-
+using CSV
+using DataFrames
 Random.seed!(1234)
 
 """
@@ -343,15 +344,56 @@ end
 """
 Backwards Euler, Full
 """
-c_avg_be_full1, energy_be_full1, time_vals_be_full1 = impliciteuler_2d(6.0,1,1,0.4,20,0.1,50,"analytical",false)
-c_avg_be_full2, energy_be_full2, time_vals_be_full2 = impliciteuler_2d(6.0,1,1,0.2,20,0.05,50,"analytical",false)
-c_avg_be_full3, energy_be_full3, time_vals_be_full3 = impliciteuler_2d(6.0,1,1,0.1,20,0.025,50,"analytical",true)
+# c_avg_be_full1, energy_be_full1, time_vals_be_full1 = impliciteuler_2d(6.0,1,1,0.4,20,0.1,50,"analytical",false)
+# c_avg_be_full2, energy_be_full2, time_vals_be_full2 = impliciteuler_2d(6.0,1,1,0.2,20,0.05,50,"analytical",false)
+# c_avg_be_full3, energy_be_full3, time_vals_be_full3 = impliciteuler_2d(6.0,1,1,0.1,20,0.025,50,"analytical",false)
 
+# #Save c_avg and energy data as csv
+# for (suffix, c_avg, energy, tvals) in (
+#     ("dx_04_dt_01", c_avg_be_full1, energy_be_full1, time_vals_be_full1),
+#     ("dx_02_dt_005", c_avg_be_full2, energy_be_full2, time_vals_be_full2),
+#     ("dx_01_dt_0025", c_avg_be_full3, energy_be_full3, time_vals_be_full3),
+# )
+#     df = DataFrame(
+#     time = tvals,
+#     c_avg = c_avg,
+#     energy = energy,
+#     )
+#     fname = @sprintf("backwardseuler2d_full_%s.csv", suffix)
+#     CSV.write(fname, df)
+#     println("Wrote $fname")
+# end
 
+const suffix_map = [
+  ("dx_04_dt_01", "full1"),
+  ("dx_02_dt_005", "full2"),
+  ("dx_01_dt_0025", "full3"),
+]
+
+for (file_sfx, var_sfx) in suffix_map
+    fname = @sprintf("backwardseuler2d_full_%s.csv", file_sfx)
+    println("Reading ", fname)
+    df = CSV.read(fname, DataFrame)
+
+    tvals = df.time
+    cavg  = df.c_avg
+    energ = df.energy
+
+    t_sym = Symbol("time_vals_be_$(var_sfx)")
+    c_sym = Symbol("c_avg_be_$(var_sfx)")
+    e_sym = Symbol("energy_be_$(var_sfx)")
+
+    @eval Main begin
+      $(t_sym) = $tvals
+      $(c_sym) = $cavg
+      $(e_sym) = $energ
+    end
+end
 
 p1 = plot(
     xlabel = L"t",
     ylabel = L"\bar{\phi}_{1}",
+    title = "Backwards Euler, Full",
     grid  = false,
     y_guidefontcolor   = :blue,
     y_foreground_color_axis   = :blue,
@@ -385,4 +427,92 @@ plot!(
 plot!(p1_axis2,time_vals_be_full2,energy_be_full2;color=:red,linestyle=:solid,label="")
 plot!(p1_axis2,time_vals_be_full3,energy_be_full3;color=:red,linestyle=:dot,label="")
 
-display(p1)
+"""
+Backwards Euler Spline
+"""
+# c_avg_be_spline1, energy_be_spline1, time_vals_be_spline1 = impliciteuler_2d(6.0,1,1,0.4,20,0.1,50,"spline",false)
+# c_avg_be_spline2, energy_be_spline2, time_vals_be_spline2 = impliciteuler_2d(6.0,1,1,0.2,20,0.05,50,"spline",false)
+# c_avg_be_spline3, energy_be_spline3, time_vals_be_spline3 = impliciteuler_2d(6.0,1,1,0.1,20,0.025,50,"spline",true)
+# #Save c_avg and energy data as csv
+# for (suffix, c_avg, energy, tvals) in (
+#     ("dx_04_dt_01", c_avg_be_spline1, energy_be_spline1, time_vals_be_spline1),
+#     ("dx_02_dt_005", c_avg_be_spline2, energy_be_spline2, time_vals_be_spline2),
+#     ("dx_01_dt_0025", c_avg_be_spline3, energy_be_spline3, time_vals_be_spline3)
+# )
+#     df = DataFrame(
+#     time = tvals,
+#     c_avg = c_avg,
+#     energy = energy,
+#     )
+#     fname = @sprintf("backwardseuler2d_spline_%s.csv", suffix)
+#     CSV.write(fname, df)
+#     println("Wrote $fname")
+# end
+
+const suffix_map_spline = [
+  ("dx_04_dt_01", "spline1"),
+  ("dx_02_dt_005", "spline2"),
+  ("dx_01_dt_0025", "spline3"),
+]
+
+for (file_sfx, var_sfx) in suffix_map_spline
+    fname = @sprintf("backwardseuler2d_spline_%s.csv", file_sfx)
+    println("Reading ", fname)
+    df = CSV.read(fname, DataFrame)
+
+    tvals = df.time
+    cavg  = df.c_avg
+    energ = df.energy
+
+    t_sym = Symbol("time_vals_be_$(var_sfx)")
+    c_sym = Symbol("c_avg_be_$(var_sfx)")
+    e_sym = Symbol("energy_be_$(var_sfx)")
+
+    @eval Main begin
+      $(t_sym) = $tvals
+      $(c_sym) = $cavg
+      $(e_sym) = $energ
+    end
+end
+
+p2 = plot(
+    xlabel = L"t",
+    ylabel = L"\bar{\phi}_{1}",
+    title = "Backwards Euler, Spline",
+    grid  = false,
+    y_guidefontcolor   = :blue,
+    y_foreground_color_axis   = :blue,
+    y_foreground_color_text   = :blue,
+    y_foreground_color_border = :blue,
+    tickfont   = Plots.font("Computer Modern", 10),
+    titlefont  = Plots.font("Computer Modern", 11),
+    legendfont = Plots.font("Computer Modern", 8),
+    ylims      = (0.45,0.55),
+  )
+
+plot!(p2, time_vals_be_spline1, c_avg_be_spline1; color = :blue, seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:blue, markersize=2, markerstrokewidth=0, markerstrokecolor=:blue, label = L"\Delta x = 0.4, \Delta t = 0.1")
+plot!(p2, time_vals_be_spline2, c_avg_be_spline2; color = :blue, linestyle=:solid, label = L"\Delta x = 0.2, \Delta t = 0.05")
+plot!(p2, time_vals_be_spline3, c_avg_be_spline3; color = :blue, linestyle=:dot, label = L"\Delta x = 0.1, \Delta t = 0.025")
+p2_axis2 = twinx(p2)
+
+plot!(
+  p2_axis2,
+  time_vals_be_spline1,
+  energy_be_spline1;
+  color         = :red,
+  ylabel        = L"\mathrm{Energy}",
+  label         = "",
+  y_guidefontcolor   = :red,
+  y_foreground_color_axis   = :red,
+  y_foreground_color_text   = :red,
+  y_foreground_color_border = :red,
+  tickfont   = Plots.font("Computer Modern", 10),
+  seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:red, markersize=2, markerstrokewidth=0, markerstrokecolor=:red,
+)
+plot!(p2_axis2,time_vals_be_spline2,energy_be_spline2;color=:red,linestyle=:solid,label="")
+plot!(p2_axis2,time_vals_be_spline3,energy_be_spline3;color=:red,linestyle=:dot,label="")
+
+p_all = plot(p1,p2, layout=(1,2),size=(800,350),dpi=300,
+                bottom_margin = 8Plots.mm, left_margin = 6Plots.mm, right_margin=8Plots.mm)
+
+display(p_all)
