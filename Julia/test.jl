@@ -18,6 +18,7 @@ Random.seed!(1234)
 """
 Functions
 """
+
 function flory_huggins(phi,chi, N1,N2)
     return (1/N1) * (phi .* log.(phi)) + (1/N2) * (1 .- phi) .* log.(1 .- phi) + chi .* phi .* (1 .- phi)
 end
@@ -91,6 +92,10 @@ function spline_generator(chi, N1, N2, knots)
     spline = pchip(phi_vals, f_vals)
     return spline
 end
+
+"""
+Backwards Euler Function
+"""
 
 
 # Residual function with Neumann boundary conditions
@@ -342,6 +347,235 @@ function impliciteuler_2d(chi, N1, N2, dx, L, dt, tf, energy_method,save_vtk=fal
 end
 
 """
+TRBDF2 Function
+"""
+
+function CH_mol2d(phi, params)
+    chi, kappa, N1, N2, dx, dy, nx, ny, energy_method = params
+
+    spline = spline_generator(chi, N1, N2,100)
+    if energy_method == "analytical"
+        dfdphi = phi -> dfdphi_ana(phi,chi,N1, N2)
+    else
+        dfdphi = phi -> spline.(phi)
+    end
+
+    #Define mobility
+    function M_func(phi)
+        return phi .* (1 .- phi)
+    end
+    
+    function M_func_half(phi1, phi2)
+        return M_func(0.5 .* (phi1 .+ phi2))
+    end
+
+    #Define chemical potential
+    # Compute mu_new
+    mu_new = similar(phi)
+
+    # Compute mu_new for all nodes
+    for i in 1:nx
+        for j in 1:ny
+                if i == 1 && j > 1 && j < ny
+                    laplacian_c = ((2.0 * (phi[2,j] - phi[1,j])) / dx^2) + (phi[1,j+1] - 2.0 * phi[1,j] + phi[1,j-1]) / dy^2
+                elseif i == nx && j > 1 && j < ny
+                    laplacian_c = ((2.0 * (phi[nx-1,j] - phi[nx,j])) / dx^2) + (phi[nx,j+1] - 2.0 * phi[nx,j] + phi[nx,j-1]) / dy^2
+                elseif j == 1 && i > 1 && i < nx
+                    laplacian_c = ((phi[i+1,1] - 2.0 * phi[i,1] + phi[i-1,1]) / dx^2) + (2.0 * (phi[i,2] - phi[i,1])) / dy^2
+                elseif j == ny && i > 1 && i < nx
+                    laplacian_c = ((phi[i+1,ny] - 2.0 * phi[i,ny] + phi[i-1,ny]) / dx^2) + (2.0 * (phi[i,ny-1] - phi[i,ny])) / dy^2
+                elseif i == 1 && j == 1
+                    laplacian_c = ((2.0 * (phi[2,1] - phi[1,1])) / dx^2) + (2.0 * (phi[1,2] - phi[1,1])) / dy^2
+                elseif i == nx && j == 1
+                    laplacian_c = ((2.0 * (phi[nx-1,1] - phi[nx,1])) / dx^2) + (2.0 * (phi[nx,2] - phi[nx,1])) / dy^2
+                elseif i == 1 && j == ny
+                    laplacian_c = ((2.0 * (phi[2,ny] - phi[1,ny])) / dx^2) + (2.0 * (phi[1,ny-1] - phi[1,ny])) / dy^2
+                elseif i == nx && j == ny
+                    laplacian_c = ((2.0 * (phi[nx-1,ny] - phi[nx,ny])) / dx^2) + (2.0 * (phi[nx,ny-1] - phi[nx,ny])) / dy^2
+                else
+                    # Interior nodes
+                    laplacian_c = (phi[i+1,j] - 2.0 * phi[i,j] + phi[i-1,j]) / dx^2 + (phi[i,j+1] - 2.0 * phi[i,j] + phi[i,j-1]) / dy^2
+                end
+                mu_new[i,j] = dfdphi(phi[i,j]) - kappa*laplacian_c
+        end
+    end
+
+
+    F = similar(phi)
+    #Define LHS
+    for i in 1:nx
+        for j in 1:ny
+            if i == 1 && j > 1 && j < ny
+                M_iphalf = M_func_half(phi[1,j], phi[2,j])
+                M_jphalf = M_func_half(phi[1,j], phi[1,j+1])
+                M_jmhalf = M_func_half(phi[1,j], phi[1,j-1])
+
+                Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,j] - mu_new[1,j]) / dx^2
+                Jy_jphalf = M_jphalf * (mu_new[1,j+1] - mu_new[1,j]) / dy^2
+                Jy_jmhalf = M_jmhalf * (mu_new[1,j] - mu_new[1,j-1]) / dy^2
+
+                div_J = Jx_iphalf + (Jy_jphalf - Jy_jmhalf)
+
+                F[1,j] = div_J
+            elseif i == nx && j > 1 && j < ny
+                M_imhalf = M_func_half(phi[nx,j], phi[nx-1,j])
+                M_jphalf = M_func_half(phi[nx,j], phi[nx,j+1])
+                M_jmhalf = M_func_half(phi[nx,j], phi[nx,j-1])
+
+                Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,j] - mu_new[nx,j]) / dx^2
+                Jy_jphalf = M_jphalf * (mu_new[nx,j+1] - mu_new[nx,j]) / dy^2
+                Jy_jmhalf = M_jmhalf * (mu_new[nx,j] - mu_new[nx,j-1]) / dy^2
+
+                div_J = Jx_imhalf + (Jy_jphalf - Jy_jmhalf)
+
+                F[nx,j] =  div_J
+            elseif j == 1 && i > 1 && i < nx
+                M_iphalf = M_func_half(phi[i,1], phi[i+1,1])
+                M_imhalf = M_func_half(phi[i,1], phi[i-1,1])
+                M_jphalf = M_func_half(phi[i,1], phi[i,2])
+
+                Jx_iphalf = M_iphalf * (mu_new[i+1,1] - mu_new[i,1]) / dx^2
+                Jx_imhalf = M_imhalf * (mu_new[i,1] - mu_new[i-1,1]) / dx^2
+                Jy_jphalf = 2.0 * M_jphalf * (mu_new[i,2] - mu_new[i,1]) / dy^2
+
+                div_J = (Jx_iphalf - Jx_imhalf) + Jy_jphalf
+
+                F[i,1] =  div_J
+            elseif j == ny && i > 1 && i < nx
+                M_iphalf = M_func_half(phi[i,ny], phi[i+1,ny])
+                M_imhalf = M_func_half(phi[i,ny], phi[i-1,ny])
+                M_jmhalf = M_func_half(phi[i,ny], phi[i,ny-1])
+
+                Jx_iphalf = M_iphalf * (mu_new[i+1,ny] - mu_new[i,ny]) / dx^2
+                Jx_imhalf = M_imhalf * (mu_new[i,ny] - mu_new[i-1,ny]) / dx^2
+                Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[i,ny-1] - mu_new[i,ny]) / dy^2
+
+                div_J = (Jx_iphalf - Jx_imhalf) + Jy_jmhalf
+
+                F[i,ny] = div_J
+            elseif i == 1 && j == 1
+                M_iphalf = M_func_half(phi[1,1], phi[2,1])
+                M_jphalf = M_func_half(phi[1,1], phi[1,2])
+
+                Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,1] - mu_new[1,1]) / dx^2
+                Jy_jphalf = 2.0 * M_jphalf * (mu_new[1,2] - mu_new[1,1]) / dy^2
+
+                div_J = Jx_iphalf + Jy_jphalf
+
+                F[1,1] = div_J
+            elseif i == nx && j == 1
+                M_imhalf = M_func_half(phi[nx,1], phi[nx-1,1])
+                M_jphalf = M_func_half(phi[nx,1], phi[nx,2])
+
+                Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,1] - mu_new[nx,1]) / dx^2
+                Jy_jphalf = 2.0 * M_jphalf * (mu_new[nx,2] - mu_new[nx,1]) / dy^2
+
+                div_J = Jx_imhalf + Jy_jphalf
+
+                F[nx,1] =  div_J
+            elseif i == 1 && j == ny
+                M_iphalf = M_func_half(phi[1,ny], phi[2,ny])
+                M_jmhalf = M_func_half(phi[1,ny], phi[1,ny-1])
+
+                Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,ny] - mu_new[1,ny]) / dx^2
+                Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[1,ny-1] - mu_new[1,ny]) / dy^2
+
+                div_J = Jx_iphalf + Jy_jmhalf
+
+                F[1,ny] = div_J
+            elseif i == nx && j == ny
+                M_imhalf = M_func_half(phi[nx,ny], phi[nx-1,ny])
+                M_jmhalf = M_func_half(phi[nx,ny], phi[nx,ny-1])
+
+                Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,ny] - mu_new[nx,ny]) / dx^2
+                Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[nx,ny-1] - mu_new[nx,ny]) / dy^2
+
+                div_J = Jx_imhalf + Jy_jmhalf
+
+                F[nx,ny] =  div_J
+
+            else
+                # Interior nodes
+                M_iphalf = M_func_half(phi[i,j], phi[i+1,j])
+                M_imhalf = M_func_half(phi[i,j], phi[i-1,j])
+                M_jphalf = M_func_half(phi[i,j], phi[i,j+1])
+                M_jmhalf = M_func_half(phi[i,j], phi[i,j-1])
+
+                Jx_iphalf = M_iphalf * (mu_new[i+1,j] - mu_new[i,j]) / dx^2
+                Jx_imhalf = M_imhalf * (mu_new[i,j] - mu_new[i-1,j]) / dx^2
+                Jy_jphalf = M_jphalf * (mu_new[i,j+1] - mu_new[i,j]) / dy^2
+                Jy_jmhalf = M_jmhalf * (mu_new[i,j] - mu_new[i,j-1]) / dy^2
+
+                div_J = (Jx_iphalf - Jx_imhalf) + (Jy_jphalf - Jy_jmhalf)
+
+                F[i,j] =  div_J
+            end
+        end
+    end
+    return F
+end
+
+function mol_solver(chi, N1, N2, dx, L, tend, energy_method, save_vtk=false)
+     #Simulation Parameters
+     L = L
+     tf = tend
+     nx = Int(L / dx) + 1
+     ny = nx
+     xvals = range(0, L, length = nx)
+     yvals = xvals
+     dy = dx
+    if (N1/N2) < 10
+        kappa = (2 / 3) * chi
+    else
+        kappa = (1/3)*chi
+    end
+
+    # Initial condition: small random perturbation around c0
+    c0_ = 0.5
+    c0 = c0_ .+ 0.02 * (rand(nx,ny) .- 0.5)
+
+    #Set up MOL bits
+    params = (chi, kappa, N1, N2, dx, dy, nx, ny, energy_method)
+
+    function ode_system!(du, u, p, t)
+        du .= CH_mol2d(u,params)
+        println(t)
+    end
+
+     # Set up the problem
+     prob = ODEProblem(ode_system!, c0, (0.0, tf))
+     sol = solve(prob, TRBDF2(),reltol=1e-6, abstol=1e-8,maxiters=1e7)
+
+     #Compute energy and mass conservation
+    t_evals = range(0,tf, 1000)
+    c_avg = zeros(length(t_evals))
+    energy = zeros(length(t_evals))
+
+    for(i,t) in enumerate(t_evals)
+        sol_ = sol(t)
+        c_avg[i] = mean(sol_)
+        energy[i] = compute_energy(xvals,yvals,dx,sol_,chi,N1,N2,kappa)
+    end
+
+    #
+    if save_vtk
+        tvtk_vals = range(0,tf,201)
+        for (i,t) in enumerate(tvtk_vals)
+            c = sol(t)
+            vtk_grid(@sprintf("snapshot_%04d", i), xvals, yvals) do vtk
+                vtk["u"]    = c
+                vtk["time"] = fill(t, size(c))
+            end
+        end
+    end
+
+
+    return c_avg, energy, t_evals
+end
+
+
+
+"""
 Backwards Euler, Full
 """
 # c_avg_be_full1, energy_be_full1, time_vals_be_full1 = impliciteuler_2d(6.0,1,1,0.4,20,0.1,50,"analytical",false)
@@ -512,7 +746,133 @@ plot!(
 plot!(p2_axis2,time_vals_be_spline2,energy_be_spline2;color=:red,linestyle=:solid,label="")
 plot!(p2_axis2,time_vals_be_spline3,energy_be_spline3;color=:red,linestyle=:dot,label="")
 
-p_all = plot(p1,p2, layout=(1,2),size=(800,350),dpi=300,
-                bottom_margin = 8Plots.mm, left_margin = 6Plots.mm, right_margin=8Plots.mm)
+"""
+TRBDF2 Analytical
+"""
+
+c_avg_bdf_full1, energy_bdf_full1, time_vals_bdf_full1 = mol_solver(6,1,1,0.4,20,50,"analytical")
+c_avg_bdf_full2, energy_bdf_full2, time_vals_bdf_full2 = mol_solver(6,1,1,0.2,20,50,"analytical")
+c_avg_bdf_full3, energy_bdf_full3, time_vals_bdf_full3 = mol_solver(6,1,1,0.1,20,50,"analytical",true)
+
+for (suffix, c_avg, energy, tvals) in (
+    ("dx_04", c_avg_bdf_full1, energy_bdf_full1, time_vals_bdf_full1),
+    ("dx_02", c_avg_bdf_full2, energy_bdf_full2, time_vals_bdf_full2),
+    ("dx_01", c_avg_bdf_full3, energy_bdf_full3, time_vals_bdf_full3)
+)
+    df = DataFrame(
+    time = tvals,
+    c_avg = c_avg,
+    energy = energy,
+    )
+    fname = @sprintf("bdf2d_analytical_%s.csv", suffix)
+    CSV.write(fname, df)
+    println("Wrote $fname")
+end
+
+p3 = plot(
+    xlabel = L"t",
+    ylabel = L"\bar{\phi}_{1}",
+    title = "TRBDF2, Full",
+    grid  = false,
+    y_guidefontcolor   = :blue,
+    y_foreground_color_axis   = :blue,
+    y_foreground_color_text   = :blue,
+    y_foreground_color_border = :blue,
+    tickfont   = Plots.font("Computer Modern", 10),
+    titlefont  = Plots.font("Computer Modern", 11),
+    legendfont = Plots.font("Computer Modern", 8),
+    ylims      = (0.45,0.55),
+  )
+
+plot!(p3, time_vals_bdf_full1, c_avg_bdf_full1; color = :blue, seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:blue, markersize=2, markerstrokewidth=0, markerstrokecolor=:blue, label = L"\Delta x = 0.4")
+plot!(p3, time_vals_bdf_full2, c_avg_bdf_full2; color = :blue, linestyle=:solid, label = L"\Delta x = 0.2")
+plot!(p3, time_vals_bdf_full3, c_avg_bdf_full3; color = :blue, linestyle=:dot, label = L"\Delta x = 0.1")
+p3_axis2 = twinx(p3)
+
+plot!(
+  p3_axis2,
+  time_vals_bdf_full1,
+  energy_bdf_full1;
+  color         = :red,
+  ylabel        = L"\mathrm{Energy}",
+  label         = "",
+  y_guidefontcolor   = :red,
+  y_foreground_color_axis   = :red,
+  y_foreground_color_text   = :red,
+  y_foreground_color_border = :red,
+  tickfont   = Plots.font("Computer Modern", 10),
+  seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:red, markersize=2, markerstrokewidth=0, markerstrokecolor=:red,
+)
+plot!(p3_axis2,time_vals_bdf_full2,energy_bdf_spline2;color=:red,linestyle=:solid,label="")
+plot!(p3_axis2,time_vals_bdf_full3,energy_bdf_spline3;color=:red,linestyle=:dot,label="")
+
+
+"""
+TRBDF2 Spline
+"""
+
+c_avg_bdf_spline1, energy_bdf_spline1, time_vals_bdf_spline1 = mol_solver(6,1,1,0.4,20,50,"spline")
+c_avg_bdf_spline2, energy_bdf_spline2, time_vals_bdf_spline2 = mol_solver(6,1,1,0.2,20,50,"spline")
+c_avg_bdf_spline3, energy_bdf_spline3, time_vals_bdf_spline3 = mol_solver(6,1,1,0.1,20,50,"spline")
+
+
+for (suffix, c_avg, energy, tvals) in (
+    ("dx_04", c_avg_bdf_spline1, energy_bdf_spline1, time_vals_bdf_spline1),
+    ("dx_02", c_avg_bdf_spline2, energy_bdf_spline2, time_vals_bdf_spline2),
+    ("dx_01", c_avg_bdf_spline3, energy_bdf_spline3, time_vals_bdf_spline3)
+)
+    df = DataFrame(
+    time = tvals,
+    c_avg = c_avg,
+    energy = energy,
+    )
+    fname = @sprintf("bdf2d_spline_%s.csv", suffix)
+    CSV.write(fname, df)
+    println("Wrote $fname")
+end
+
+p4 = plot(
+    xlabel = L"t",
+    ylabel = L"\bar{\phi}_{1}",
+    title = "TRBDF2, Spline",
+    grid  = false,
+    y_guidefontcolor   = :blue,
+    y_foreground_color_axis   = :blue,
+    y_foreground_color_text   = :blue,
+    y_foreground_color_border = :blue,
+    tickfont   = Plots.font("Computer Modern", 10),
+    titlefont  = Plots.font("Computer Modern", 11),
+    legendfont = Plots.font("Computer Modern", 8),
+    ylims      = (0.45,0.55),
+  )
+
+plot!(p4, time_vals_bdf_spline1, c_avg_bdf_spline1; color = :blue, seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:blue, markersize=2, markerstrokewidth=0, markerstrokecolor=:blue, label = L"\Delta x = 0.4")
+plot!(p4, time_vals_bdf_spline2, c_avg_bdf_spline2; color = :blue, linestyle=:solid, label = L"\Delta x = 0.2")
+plot!(p2, time_vals_bdf_spline3, c_avg_bdf_spline3; color = :blue, linestyle=:dot, label = L"\Delta x = 0.1")
+p4_axis2 = twinx(p4)
+
+plot!(
+  p4_axis2,
+  time_vals_bdf_spline1,
+  energy_bdf_spline1;
+  color         = :red,
+  ylabel        = L"\mathrm{Energy}",
+  label         = "",
+  y_guidefontcolor   = :red,
+  y_foreground_color_axis   = :red,
+  y_foreground_color_text   = :red,
+  y_foreground_color_border = :red,
+  tickfont   = Plots.font("Computer Modern", 10),
+  seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:red, markersize=2, markerstrokewidth=0, markerstrokecolor=:red,
+)
+plot!(p4_axis2,time_vals_bdf_spline2,energy_bdf_spline2;color=:red,linestyle=:solid,label="")
+plot!(p4_axis2,time_vals_bdf_spline3,energy_bdf_spline3;color=:red,linestyle=:dot,label="")
+
+"""
+Combined Plot
+"""
+
+p_all = plot(p1,p2,p3,p4, layout=(1,4),size=(1600,350),dpi=300,
+                bottom_margin = 8Plots.mm, left_margin = 8Plots.mm, right_margin=8Plots.mm)
 
 display(p_all)
