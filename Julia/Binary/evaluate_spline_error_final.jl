@@ -13,6 +13,34 @@ This script is used to generate the following figures:
 Define functions
 """
 
+@recipe function f(::Type{Val{:samplemarkers}}, x, y, z; step = 100)
+    n = length(y)
+    sx, sy = x[1:step:n], y[1:step:n]
+    # add an empty series with the correct type for legend markers
+    @series begin
+        seriestype := :path
+        markershape --> :auto
+        x := []
+        y := []
+    end
+    # add a series for the line
+    @series begin
+        primary := false # no legend entry
+        markershape := :none # ensure no markers
+        seriestype := :path
+        seriescolor := get(plotattributes, :seriescolor, :auto)
+        x := x
+        y := y
+    end
+    # return  a series for the sampled markers
+    primary := false
+    seriestype := :scatter
+    markershape --> :auto
+    x := sx
+    y := sy
+end
+
+
 
 function fh_deriv(phi,chi,N1,N2)
     df = (1/N1).*log.(phi) .+ (1/N1) .- (1/N2).*log.(1 .- phi) .- (1/N2) .- 2*chi.*phi .+ chi
@@ -148,4 +176,4 @@ plot(p1, p2, layout=(1,2), size=(800, 400),
     legendfont=Plots.font("Computer Modern", 7),
     dpi=300,bottom_margin = 3Plots.mm, left_margin = 5Plots.mm, right_margin=3Plots.mm)
 
-savefig("./spline_error_pchip_uniform.png")
+# savefig("./spline_error_pchip_uniform.png")
