@@ -8,53 +8,23 @@ using IterativeSolvers
 using Random
 using Statistics
 using Sundials
-include("./pchip.jl")
-using WriteVTK
-using Printf
-using CSV
+include("../pchip.jl")
+using NaNMath
 using DataFrames
 using LaTeXStrings
 using DifferentialEquations
+using CSV
+using Plots.PlotMeasures
 using LinearSolve
 using SparseConnectivityTracer
 using ADTypes
-Random.seed!(1234)
+
+const datadir = joinpath(@__DIR__, "2d_stability_data")
+
 
 """
 Functions
 """
-
-@recipe function f(::Type{Val{:samplemarkers}}, x, y, z; step = 100)
-    n = length(y)
-    sx, sy = x[1:step:n], y[1:step:n]
-    # add an empty series with the correct type for legend markers
-    @series begin
-        seriestype := :path
-        markershape --> :auto
-        x := []
-        y := []
-    end
-    # add a series for the line
-    @series begin
-        primary := false # no legend entry
-        markershape := :none # ensure no markers
-        seriestype := :path
-        seriescolor := get(plotattributes, :seriescolor, :auto)
-        x := x
-        y := y
-    end
-    # return  a series for the sampled markers
-    primary := false
-    seriestype := :scatter
-    markershape --> :auto
-    x := sx
-    y := sy
-end
-
-
-function flory_huggins(phi,chi, N1,N2)
-    return (1/N1) * (phi .* log.(phi)) + (1/N2) * (1 .- phi) .* log.(1 .- phi) + chi .* phi .* (1 .- phi)
-end
 
 function dfdphi_ana(phi, chi, N1, N2)
     return (1/N1)*log.(phi) - (1/N2)*log.(1 .- phi) + chi * (1 .- 2 .* phi)
@@ -124,6 +94,25 @@ function spline_generator(chi, N1, N2, knots)
     # Build and return the spline function using pchip
     spline = pchip(phi_vals, f_vals)
     return spline
+end
+
+function tend_generator(chi)
+    if chi < 5
+        tend = 100
+    elseif 5 <= chi < 10
+        tend = 30
+    elseif 10 <= chi < 15
+        tend = 15
+    elseif 15 <= chi < 20
+        tend = 10
+    elseif 20 <= chi < 25
+        tend = 8
+    elseif 25 <= chi < 30
+        tend = 5
+    elseif chi >= 30
+        tend = 4
+    end
+    return tend
 end
 
 """
@@ -303,7 +292,7 @@ function residual!(F, c_new, p)
     end
 end
 
-function impliciteuler_2d(chi, N1, N2, dx, L, dt, tf, energy_method,save_vtk=false)
+function impliciteuler_2d(chi, N1, N2, dx, L, dt, tf, energy_method)
     L = L
     tf = tf
     nx = Int(L / dx) + 1
@@ -321,23 +310,6 @@ function impliciteuler_2d(chi, N1, N2, dx, L, dt, tf, energy_method,save_vtk=fal
     c0 = 0.5
     c = c0 .+ 0.02 * (rand(nx, ny) .- 0.5)
 
-    #Store ICs in VTK
-    if save_vtk
-        vtk_grid(@sprintf("snapshot_%04d", 0), x, y) do vtk
-            vtk["u"]    = c
-            vtk["time"] = fill(0.0, size(c))
-        end
-    end
-
-    # Initialize arrays to store results
-    c_avg = zeros(nt+1)
-    energy = zeros(nt+1)
-
-    c_avg[1] = mean(c)
-    energy[1] = compute_energy(x,y,dx,c,chi,N1,N2,kappa)
-
-    stride = 10
-
     for n = 1:nt
         println("Time step: $n, Time: $(n*dt)")
 
@@ -353,30 +325,26 @@ function impliciteuler_2d(chi, N1, N2, dx, L, dt, tf, energy_method,save_vtk=fal
         # Create the NonlinearProblem
         problem = NonlinearProblem(residual!, c_old, p)
 
+        term_cond = AbsNormSafeTerminationMode(
+            NonlinearSolve.L2_NORM; protective_threshold = nothing,
+            patience_steps = 100, patience_objective_multiplier = 3,
+            min_max_factor = 1.3,
+            )
+
         # Solve the nonlinear system
-        solver = solve(problem, NewtonRaphson(linsolve = KrylovJL_GMRES()), show_trace = Val(false))
+        solver = solve(problem, NewtonRaphson(linsolve = KrylovJL_GMRES()), show_trace = Val(false),termination_condition=term_cond,abstol=1e-8)
         
         # Update c for the next time step
         c_new_vec = solver.u
         c = reshape(c_new_vec, nx, ny)
 
-        # Compute statistics for plotting
-        c_avg[n+1] = mean(c)
-        energy[n+1] = compute_energy(x,y,dx,c,chi,N1,N2,kappa)
-
-        if save_vtk && (n % stride == 0)
-            vtk_grid(@sprintf("snapshot_%04d", n), x, y) do vtk
-                vtk["u"]    = c
-                vtk["time"] = fill(n*dt, size(c))
-            end
+        abstol = 1e-7
+        if norm(solver.resid,Inf) > abstol || any(x -> x>1 || x < 0, c)
+            error("Sovler did not converge")
         end
 
+        
     end
-    # Save the animation as a GIF
-    time_vals = range(0,tf,nt+1)
-
-    # Return the final concentration profile and computed data
-    return c_avg, energy, time_vals
 end
 
 """
@@ -548,10 +516,10 @@ function CH_mol2d(phi, params)
     return F
 end
 
-function mol_solver(chi, N1, N2, dx, L, tend, energy_method, save_vtk=false)
+function mol_solver(chi, N1, N2, dx, L, energy_method)
      #Simulation Parameters
      L = L
-     tf = tend
+     tf = tend_generator(chi)
      nx = Int(L / dx) + 1
      ny = nx
      xvals = range(0, L, length = nx)
@@ -586,396 +554,172 @@ function mol_solver(chi, N1, N2, dx, L, tend, energy_method, save_vtk=false)
     jac_sparsity = ADTypes.jacobian_sparsity((du,u) -> ode_system_jac!(du,u,params,0.0), du0,c0,detector)
     
     f = ODEFunction(ode_system!; jac_prototype=float.(jac_sparsity))
+
+    #Set up stagnation bits
+    DT_THRESH = 1e-8
+    MAX_STEPS = 1000
+    
+    # stagnation_condition(u, t, integrator) = true
+
+    # function stagnation_affect!(integrator)
+    #     if integrator.dt < DT_THRESH
+    #         integrator.p[:small_dt_counter] += 1      # increment
+    #     else
+    #         integrator.p[:small_dt_counter] = 0       # reset
+    #     end
+
+    #     if integrator.p[:small_dt_counter] ≥ MAX_STEPS
+    #         error("Integrator stagnated: dt < $DT_THRESH for $MAX_STEPS consecutive steps")
+    #     end
+    # end
+
+    # cb = DiscreteCallback(stagnation_condition, stagnation_affect!)
+
+    # function stagnation_condition(u, t, integrator)
+    #     dt_small   = integrator.dt < DT_THRESH
+    #     new_time   = t > integrator.p[:last_event_t]   # prevents zero-length loop
+    #     return dt_small && new_time
+    # end
+    # function stagnation_affect!(integrator)
+    #     if integrator.dt < DT_THRESH
+    #         integrator.p[:small_dt_counter] += 1
+    #     else
+    #         integrator.p[:small_dt_counter] = 0     
+    #     end
+    #     if integrator.p[:small_dt_counter] ≥ MAX_STEPS
+    #         error("Integrator stagnated: dt < $DT_THRESH for $MAX_STEPS consecutive steps")
+    #     end
+    # end
+    # cb = DiscreteCallback(stagnation_condition, stagnation_affect!; save_positions=(false,false))
+
+    # p0   = Dict(:small_dt_counter => 0,
+    #         :last_event_t      => -Inf)
     prob = ODEProblem(f,c0,(0.0,tf))
-    sol = solve(prob, TRBDF2(),reltol=1e-6, abstol=1e-8,maxiters=1e7)
+    sol = solve(prob, TRBDF2(),reltol=1e-8, abstol=1e-8,maxiters=1e7)
 
-     # Set up the problem
-    #  prob = ODEProblem(ode_system!, c0, (0.0, tf))
-    #  sol = solve(prob, TRBDF2(linsolve=KrylovJL_GMRES()),reltol=1e-6, abstol=1e-8,maxiters=1e7)
+end
 
-     #Compute energy and mass conservation
-    t_evals = range(0,tf, 1000)
-    c_avg = zeros(length(t_evals))
-    energy = zeros(length(t_evals))
 
-    for(i,t) in enumerate(t_evals)
-        sol_ = sol(t)
-        c_avg[i] = mean(sol_)
-        energy[i] = compute_energy(xvals,yvals,dx,sol_,chi,N1,N2,kappa)
+"""
+Testing functions
+"""
+function load_or_initialize_csv(file_name::String)
+    if isfile(file_name)
+        return CSV.read(file_name, DataFrame)
+    else
+        return DataFrame(chi=Float64[], dx=Float64[], max_dt=Float64[])
     end
+end
 
-    #
-    if save_vtk
-        tvtk_vals = range(0,tf,201)
-        for (i,t) in enumerate(tvtk_vals)
-            c = sol(t)
-            vtk_grid(@sprintf("snapshot_%04d", i), xvals, yvals) do vtk
-                vtk["u"]    = c
-                vtk["time"] = fill(t, size(c))
+# Function to save results to a CSV file
+function save_results_to_csv(file_name::String, results::DataFrame)
+    CSV.write(file_name, results)
+end
+
+
+"""
+Testing MOL Solver
+"""
+
+function param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, L = 20.0, energy_method="analytical",results_file)
+    # Load existing results if the file exists
+    results = Dict()
+    if isfile(results_file)
+        existing_data = CSV.read(results_file, DataFrame)
+        for row in eachrow(existing_data)
+            key = (row.chi, row.dx)
+            results[key] = row.min_dt
+        end
+    end
+    new_results = DataFrame(chi=Float64[], dx=Float64[], min_dt=Float64[])
+    # Initialize the min_dt_matrix for results
+    min_dt_matrix = fill(NaN, length(chi_values), length(dx_values))
+    for (i, chi) in enumerate(chi_values)
+        for (j, dx) in enumerate(dx_values)
+            key = (chi,dx)
+            if haskey(results, key)
+                println("Reusing result for chi=$chi, dx=$dx, energy_method=$energy_method, timestepping=BDF")
+                min_dt_matrix[i, j] = results[key]
+            else
+                println("Running simulation for chi=$chi, dx=$dx, energy_method=$energy_method, timestepping=BDF")
+                sol = nothing
+                try
+                    sol = mol_solver(chi, N1, N2, dx, L,energy_method)
+                    # Check solver return code for divergence
+                    if sol.retcode == :Diverged || sol.retcode == :Failure
+                        @warn "Solver diverged or failed for chi=$chi, dx=$dx"
+                        min_dt_matrix[i,j] = NaN
+                    else
+                        t_values = sol.t
+                        if length(t_values) > 1
+                            min_dt_matrix[i, j] = minimum(diff(t_values))
+                        else
+                            # Solver didn't advance
+                            @warn "Solver did not advance for chi=$chi, dx=$dx"
+                            min_dt_matrix[i, j] = NaN
+                        end
+                    end
+                catch e
+                    @warn "Solver failed for chi=$chi, dx=$dx with error $e"
+                    min_dt_matrix[i, j] = NaN
+                end
+
+                # Save the result to the new DataFrame
+                push!(new_results, (chi, dx, min_dt_matrix[i,j]))
+                # results[key] = min_dt_matrix[i,j]
             end
         end
     end
-
-
-    return c_avg, energy, t_evals
-end
-
-
-
-"""
-Backwards Euler, Full
-"""
-# c_avg_be_full1, energy_be_full1, time_vals_be_full1 = impliciteuler_2d(6.0,1,1,0.4,20,0.1,50,"analytical",false)
-# c_avg_be_full2, energy_be_full2, time_vals_be_full2 = impliciteuler_2d(6.0,1,1,0.2,20,0.05,50,"analytical",false)
-# c_avg_be_full3, energy_be_full3, time_vals_be_full3 = impliciteuler_2d(6.0,1,1,0.1,20,0.025,50,"analytical",false)
-
-# #Save c_avg and energy data as csv
-# for (suffix, c_avg, energy, tvals) in (
-#     ("dx_04_dt_01", c_avg_be_full1, energy_be_full1, time_vals_be_full1),
-#     ("dx_02_dt_005", c_avg_be_full2, energy_be_full2, time_vals_be_full2),
-#     ("dx_01_dt_0025", c_avg_be_full3, energy_be_full3, time_vals_be_full3),
-# )
-#     df = DataFrame(
-#     time = tvals,
-#     c_avg = c_avg,
-#     energy = energy,
-#     )
-#     fname = @sprintf("backwardseuler2d_full_%s.csv", suffix)
-#     CSV.write(fname, df)
-#     println("Wrote $fname")
-# end
-
-const suffix_map = [
-  ("dx_04_dt_01", "full1"),
-  ("dx_02_dt_005", "full2"),
-  ("dx_01_dt_0025", "full3"),
-]
-
-for (file_sfx, var_sfx) in suffix_map
-    fname = @sprintf("backwardseuler2d_full_%s.csv", file_sfx)
-    println("Reading ", fname)
-    df = CSV.read(fname, DataFrame)
-
-    tvals = df.time
-    cavg  = df.c_avg
-    energ = df.energy
-
-    t_sym = Symbol("time_vals_be_$(var_sfx)")
-    c_sym = Symbol("c_avg_be_$(var_sfx)")
-    e_sym = Symbol("energy_be_$(var_sfx)")
-
-    @eval Main begin
-      $(t_sym) = $tvals
-      $(c_sym) = $cavg
-      $(e_sym) = $energ
+    # Append new results to the CSV file
+    if !isempty(new_results)
+        if isfile(results_file)
+            # Combine existing data with new results and save
+            combined_data = vcat(CSV.read(results_file, DataFrame), new_results)
+            CSV.write(results_file, combined_data)
+        else
+            # Save new results if file doesn't exist
+            CSV.write(results_file, new_results)
+        end
     end
+    return min_dt_matrix
 end
 
-p1 = plot(
-    xlabel = L"t",
-    ylabel = L"\bar{\phi}_{1}",
-    title = "Backwards Euler, Full",
-    grid  = false,
-    y_guidefontcolor   = :blue,
-    y_foreground_color_axis   = :blue,
-    y_foreground_color_text   = :blue,
-    y_foreground_color_border = :blue,
-    tickfont   = Plots.font("Computer Modern", 10),
-    titlefont  = Plots.font("Computer Modern", 11),
-    legendfont = Plots.font("Computer Modern", 8),
-    ylims      = (0.45,0.55),
-  )
-
-plot!(p1, time_vals_be_full1, c_avg_be_full1; color = :blue, seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:blue, markersize=2, markerstrokewidth=0, markerstrokecolor=:blue, label = L"\Delta x = 0.4, \Delta t = 0.1")
-plot!(p1, time_vals_be_full2, c_avg_be_full2; color = :blue, linestyle=:solid, label = L"\Delta x = 0.2, \Delta t = 0.05")
-plot!(p1, time_vals_be_full3, c_avg_be_full3; color = :blue, linestyle=:dot, label = L"\Delta x = 0.1, \Delta t = 0.025")
-p1_axis2 = twinx(p1)
-
-plot!(
-  p1_axis2,
-  time_vals_be_full1,
-  energy_be_full1;
-  color         = :red,
-  ylabel        = L"\mathrm{Energy}",
-  label         = "",
-  y_guidefontcolor   = :red,
-  y_foreground_color_axis   = :red,
-  y_foreground_color_text   = :red,
-  y_foreground_color_border = :red,
-  tickfont   = Plots.font("Computer Modern", 10),
-  seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:red, markersize=2, markerstrokewidth=0, markerstrokecolor=:red,
-)
-plot!(p1_axis2,time_vals_be_full2,energy_be_full2;color=:red,linestyle=:solid,label="")
-plot!(p1_axis2,time_vals_be_full3,energy_be_full3;color=:red,linestyle=:dot,label="")
-
-"""
-Backwards Euler Spline
-"""
-# c_avg_be_spline1, energy_be_spline1, time_vals_be_spline1 = impliciteuler_2d(6.0,1,1,0.4,20,0.1,50,"spline",false)
-# c_avg_be_spline2, energy_be_spline2, time_vals_be_spline2 = impliciteuler_2d(6.0,1,1,0.2,20,0.05,50,"spline",false)
-# c_avg_be_spline3, energy_be_spline3, time_vals_be_spline3 = impliciteuler_2d(6.0,1,1,0.1,20,0.025,50,"spline",true)
-# #Save c_avg and energy data as csv
-# for (suffix, c_avg, energy, tvals) in (
-#     ("dx_04_dt_01", c_avg_be_spline1, energy_be_spline1, time_vals_be_spline1),
-#     ("dx_02_dt_005", c_avg_be_spline2, energy_be_spline2, time_vals_be_spline2),
-#     ("dx_01_dt_0025", c_avg_be_spline3, energy_be_spline3, time_vals_be_spline3)
-# )
-#     df = DataFrame(
-#     time = tvals,
-#     c_avg = c_avg,
-#     energy = energy,
-#     )
-#     fname = @sprintf("backwardseuler2d_spline_%s.csv", suffix)
-#     CSV.write(fname, df)
-#     println("Wrote $fname")
-# end
-
-const suffix_map_spline = [
-  ("dx_04_dt_01", "spline1"),
-  ("dx_02_dt_005", "spline2"),
-  ("dx_01_dt_0025", "spline3"),
-]
-
-for (file_sfx, var_sfx) in suffix_map_spline
-    fname = @sprintf("backwardseuler2d_spline_%s.csv", file_sfx)
-    println("Reading ", fname)
-    df = CSV.read(fname, DataFrame)
-
-    tvals = df.time
-    cavg  = df.c_avg
-    energ = df.energy
-
-    t_sym = Symbol("time_vals_be_$(var_sfx)")
-    c_sym = Symbol("c_avg_be_$(var_sfx)")
-    e_sym = Symbol("energy_be_$(var_sfx)")
-
-    @eval Main begin
-      $(t_sym) = $tvals
-      $(c_sym) = $cavg
-      $(e_sym) = $energ
-    end
-end
-
-p2 = plot(
-    xlabel = L"t",
-    ylabel = L"\bar{\phi}_{1}",
-    title = "Backwards Euler, Spline",
-    grid  = false,
-    y_guidefontcolor   = :blue,
-    y_foreground_color_axis   = :blue,
-    y_foreground_color_text   = :blue,
-    y_foreground_color_border = :blue,
-    tickfont   = Plots.font("Computer Modern", 10),
-    titlefont  = Plots.font("Computer Modern", 11),
-    legendfont = Plots.font("Computer Modern", 8),
-    ylims      = (0.45,0.55),
-  )
-
-plot!(p2, time_vals_be_spline1, c_avg_be_spline1; color = :blue, seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:blue, markersize=2, markerstrokewidth=0, markerstrokecolor=:blue, label = L"\Delta x = 0.4, \Delta t = 0.1")
-plot!(p2, time_vals_be_spline2, c_avg_be_spline2; color = :blue, linestyle=:solid, label = L"\Delta x = 0.2, \Delta t = 0.05")
-plot!(p2, time_vals_be_spline3, c_avg_be_spline3; color = :blue, linestyle=:dot, label = L"\Delta x = 0.1, \Delta t = 0.025")
-p2_axis2 = twinx(p2)
-
-plot!(
-  p2_axis2,
-  time_vals_be_spline1,
-  energy_be_spline1;
-  color         = :red,
-  ylabel        = L"\mathrm{Energy}",
-  label         = "",
-  y_guidefontcolor   = :red,
-  y_foreground_color_axis   = :red,
-  y_foreground_color_text   = :red,
-  y_foreground_color_border = :red,
-  tickfont   = Plots.font("Computer Modern", 10),
-  seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:red, markersize=2, markerstrokewidth=0, markerstrokecolor=:red,
-)
-plot!(p2_axis2,time_vals_be_spline2,energy_be_spline2;color=:red,linestyle=:solid,label="")
-plot!(p2_axis2,time_vals_be_spline3,energy_be_spline3;color=:red,linestyle=:dot,label="")
-
-# """
-# TRBDF2 Analytical
-# """
-
-# c_avg_bdf_full1, energy_bdf_full1, time_vals_bdf_full1 = mol_solver(6,1,1,0.4,20,50,"analytical")
-# c_avg_bdf_full2, energy_bdf_full2, time_vals_bdf_full2 = mol_solver(6,1,1,0.2,20,50,"analytical")
-# c_avg_bdf_full3, energy_bdf_full3, time_vals_bdf_full3 = mol_solver(6,1,1,0.1,20,50,"analytical")
-
-# for (suffix, c_avg, energy, tvals) in (
-#     ("dx_04", c_avg_bdf_full1, energy_bdf_full1, time_vals_bdf_full1),
-#     ("dx_02", c_avg_bdf_full2, energy_bdf_full2, time_vals_bdf_full2),
-#     ("dx_01", c_avg_bdf_full3, energy_bdf_full3, time_vals_bdf_full3)
-# )
-#     df = DataFrame(
-#     time = tvals,
-#     c_avg = c_avg,
-#     energy = energy,
-#     )
-#     fname = @sprintf("bdf2d_analytical_%s.csv", suffix)
-#     CSV.write(fname, df)
-#     println("Wrote $fname")
-# end
-
-const suffix_map_bdf_full = [
-  ("dx_04", "full1"),
-  ("dx_02", "full2"),
-  ("dx_01", "full3"),
-]
-
-for (file_sfx, var_sfx) in suffix_map_bdf_full
-    fname = @sprintf("bdf2d_analytical_%s.csv", file_sfx)
-    println("Reading ", fname)
-    df = CSV.read(fname, DataFrame)
-
-    tvals = df.time
-    cavg  = df.c_avg
-    energ = df.energy
-
-    t_sym = Symbol("time_vals_bdf_$(var_sfx)")
-    c_sym = Symbol("c_avg_bdf_$(var_sfx)")
-    e_sym = Symbol("energy_bdf_$(var_sfx)")
-
-    @eval Main begin
-      $(t_sym) = $tvals
-      $(c_sym) = $cavg
-      $(e_sym) = $energ
-    end
-end
-
-p3 = plot(
-    xlabel = L"t",
-    ylabel = L"\bar{\phi}_{1}",
-    title = "TRBDF2, Full",
-    grid  = false,
-    y_guidefontcolor   = :blue,
-    y_foreground_color_axis   = :blue,
-    y_foreground_color_text   = :blue,
-    y_foreground_color_border = :blue,
-    tickfont   = Plots.font("Computer Modern", 10),
-    titlefont  = Plots.font("Computer Modern", 11),
-    legendfont = Plots.font("Computer Modern", 8),
-    ylims      = (0.45,0.55),
-  )
-
-plot!(p3, time_vals_bdf_full1, c_avg_bdf_full1; color = :blue, seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:blue, markersize=2, markerstrokewidth=0, markerstrokecolor=:blue, label = L"\Delta x = 0.4")
-plot!(p3, time_vals_bdf_full2, c_avg_bdf_full2; color = :blue, linestyle=:solid, label = L"\Delta x = 0.2")
-plot!(p3, time_vals_bdf_full3, c_avg_bdf_full3; color = :blue, linestyle=:dot, label = L"\Delta x = 0.1")
-p3_axis2 = twinx(p3)
-
-plot!(
-  p3_axis2,
-  time_vals_bdf_full1,
-  energy_bdf_full1;
-  color         = :red,
-  ylabel        = L"\mathrm{Energy}",
-  label         = "",
-  y_guidefontcolor   = :red,
-  y_foreground_color_axis   = :red,
-  y_foreground_color_text   = :red,
-  y_foreground_color_border = :red,
-  tickfont   = Plots.font("Computer Modern", 10),
-  seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:red, markersize=2, markerstrokewidth=0, markerstrokecolor=:red,
-)
-plot!(p3_axis2,time_vals_bdf_full2,energy_bdf_full2;color=:red,linestyle=:solid,label="")
-plot!(p3_axis2,time_vals_bdf_full3,energy_bdf_full3;color=:red,linestyle=:dot,label="")
-
-
-# """
-# TRBDF2 Spline
-# """
-
-# c_avg_bdf_spline1, energy_bdf_spline1, time_vals_bdf_spline1 = mol_solver(6,1,1,0.4,20,50,"spline")
-# c_avg_bdf_spline2, energy_bdf_spline2, time_vals_bdf_spline2 = mol_solver(6,1,1,0.2,20,50,"spline")
-# c_avg_bdf_spline3, energy_bdf_spline3, time_vals_bdf_spline3 = mol_solver(6,1,1,0.1,20,50,"spline",true)
-
-
-# for (suffix, c_avg, energy, tvals) in (
-#     ("dx_04", c_avg_bdf_spline1, energy_bdf_spline1, time_vals_bdf_spline1),
-#     ("dx_02", c_avg_bdf_spline2, energy_bdf_spline2, time_vals_bdf_spline2),
-#     ("dx_01", c_avg_bdf_spline3, energy_bdf_spline3, time_vals_bdf_spline3)
-# )
-#     df = DataFrame(
-#     time = tvals,
-#     c_avg = c_avg,
-#     energy = energy,
-#     )
-#     fname = @sprintf("bdf2d_spline_%s.csv", suffix)
-#     CSV.write(fname, df)
-#     println("Wrote $fname")
-# end
+chi_values = 4:1:16
+dx_values = [0.1,0.16,0.2,0.25,0.4,0.5]
 
 
 
-const suffix_map_bdf_spline = [
-  ("dx_04", "full1"),
-  ("dx_02", "full2"),
-  ("dx_01", "full3"),
-]
+min_dt_matrix_spline = param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline",results_file= joinpath(datadir,"2d_dt_bdf_spline.csv"))
+min_dt_matrix_analytical = param_sweep_min_dt(chi_values,dx_values,N1=1.0,N2=1.0,energy_method="analytical",results_file=joinpath(datadir,"2d_dt_bdf_ana.csv"))
 
-for (file_sfx, var_sfx) in suffix_map_bdf_spline
-    fname = @sprintf("bdf2d_spline_%s.csv", file_sfx)
-    println("Reading ", fname)
-    df = CSV.read(fname, DataFrame)
+log_min_dt_spline = log10.(min_dt_matrix_spline)
+finite_values_spline = log_min_dt_spline[.!isnan.(log_min_dt_spline)]
+cmin_spline = minimum(finite_values_spline)
+cmax_spline = maximum(finite_values_spline)
 
-    tvals = df.time
-    cavg  = df.c_avg
-    energ = df.energy
+log_min_dt_ana = log10.(min_dt_matrix_analytical)
+finite_values_ana = log_min_dt_ana[.!isnan.(log_min_dt_ana)]
+cmin_ana = minimum(finite_values_ana)
+cmax_ana = maximum(finite_values_ana)
 
-    t_sym = Symbol("time_vals_bdf_$(var_sfx)")
-    c_sym = Symbol("c_avg_bdf_$(var_sfx)")
-    e_sym = Symbol("energy_bdf_$(var_sfx)")
-
-    @eval Main begin
-      $(t_sym) = $tvals
-      $(c_sym) = $cavg
-      $(e_sym) = $energ
-    end
-end
+p1= heatmap(dx_values, chi_values, log_min_dt_ana,
+    xlabel=L"\Delta x", ylabel=L"\chi_{12}",
+    color=:viridis, nan_color=:grey,
+    clims=(cmin_ana, cmax_ana),
+    colorbar_title = L"\log_{10}(\min(\Delta t))",
+    xscale = :log10, grid=false,tickfont=Plots.font("Computer Modern", 10),
+    title="TRBDF2, Full",
+    titlefont=Plots.font("Computer Modern",12),size=(500,500))
 
 
-p4 = plot(
-    xlabel = L"t",
-    ylabel = L"\bar{\phi}_{1}",
-    title = "TRBDF2, Spline",
-    grid  = false,
-    y_guidefontcolor   = :blue,
-    y_foreground_color_axis   = :blue,
-    y_foreground_color_text   = :blue,
-    y_foreground_color_border = :blue,
-    tickfont   = Plots.font("Computer Modern", 10),
-    titlefont  = Plots.font("Computer Modern", 11),
-    legendfont = Plots.font("Computer Modern", 8),
-    ylims      = (0.45,0.55),
-  )
+p2= heatmap(dx_values, chi_values, log_min_dt_spline,
+    xlabel=L"\Delta x", ylabel=L"\chi_{12}",
+    color=:viridis, nan_color=:grey,
+    clims=(cmin_spline, cmax_spline),
+    colorbar_title = L"\log_{10}(\min(\Delta t))",
+    xscale = :log10, grid=false,tickfont=Plots.font("Computer Modern", 10),
+    title="TRBDF2, Spline",
+    titlefont=Plots.font("Computer Modern",12),size=(500,500))
 
-plot!(p4, time_vals_bdf_spline1, c_avg_bdf_spline1; color = :blue, seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:blue, markersize=2, markerstrokewidth=0, markerstrokecolor=:blue, label = L"\Delta x = 0.4")
-plot!(p4, time_vals_bdf_spline2, c_avg_bdf_spline2; color = :blue, linestyle=:solid, label = L"\Delta x = 0.2")
-plot!(p4, time_vals_bdf_spline3, c_avg_bdf_spline3; color = :blue, linestyle=:dot, label = L"\Delta x = 0.1")
-p4_axis2 = twinx(p4)
 
-plot!(
-  p4_axis2,
-  time_vals_bdf_spline1,
-  energy_bdf_spline1;
-  color         = :red,
-  ylabel        = L"\mathrm{Energy}",
-  label         = "",
-  y_guidefontcolor   = :red,
-  y_foreground_color_axis   = :red,
-  y_foreground_color_text   = :red,
-  y_foreground_color_border = :red,
-  tickfont   = Plots.font("Computer Modern", 10),
-  seriestype=:samplemarkers,step=50, marker=:circle,markercolor=:red, markersize=2, markerstrokewidth=0, markerstrokecolor=:red,
-)
-plot!(p4_axis2,time_vals_bdf_spline2,energy_bdf_spline2;color=:red,linestyle=:solid,label="")
-plot!(p4_axis2,time_vals_bdf_spline3,energy_bdf_spline3;color=:red,linestyle=:dot,label="")
-
-"""
-Combined Plot
-"""
-
-p_all = plot(p1,p2,p3,p4, layout=(2,2),size=(800,700),dpi=300,
-                bottom_margin = 3Plots.mm, left_margin = 3Plots.mm, right_margin=3Plots.mm)
-savefig("2d_benchmarking_case2.png")
-
-display(p_all)
+p_all = plot(p1,p2, layout=2, size=(1400,700), dpi=300, leftmargin=3mm, righhmargin=3mm,bottommargin=3mm)
