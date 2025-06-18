@@ -11,7 +11,6 @@ using DataFrames
 using LaTeXStrings
 using DifferentialEquations
 using CSV
-using DataFrames
 using Plots.PlotMeasures
 include("../Julia/pchip.jl") 
 

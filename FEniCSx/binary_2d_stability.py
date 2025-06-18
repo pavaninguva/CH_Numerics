@@ -238,8 +238,9 @@ if __name__ == '__main__':
         return values
     
     # Define the parameter ranges.
-    chi_values = np.array([3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,12.0,13.0,14.0,15.0,16.0,17.0,18.0,19.0,20.0])  
-    deltax_values = np.array([0.1,0.16,0.2,0.25,0.4,0.5,0.8])    
+    # chi_values = np.array([3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,12.0,13.0,14.0,15.0,16.0,17.0,18.0,19.0,20.0])  
+    deltax_values = np.array([0.08,0.1,0.16,0.2,0.25,0.4,0.5,0.8])
+    chi_values = np.array([3.0,4.0,5.0,6.0,7.0,8.0])    
 
     # Run the parameter study.
     spline_csv = "./2d_spline_min_dt_fenics.csv"
@@ -251,9 +252,9 @@ if __name__ == '__main__':
                            ic_fun=ic_fun, N1=N1, N2=N2, stride=stride,
                            num_workers=5, csv_filename=spline_csv,sim_func=cahn_hilliard_spline)
     
-    # run_parameter_study_mp(chi_values, deltax_values,
-    #                        dt_start=(1.0/8192), dt_min=1e-4,
-    #                        ic_fun=ic_fun, N1=N1, N2=N2, stride=stride,
-    #                        num_workers=4, csv_filename=analytical_csv,sim_func=cahn_hilliard_analytical)
+    run_parameter_study_mp(chi_values, deltax_values,
+                           dt_start=0.5, dt_min=1e-4,
+                           ic_fun=ic_fun, N1=N1, N2=N2, stride=stride,
+                           num_workers=4, csv_filename=analytical_csv,sim_func=cahn_hilliard_analytical)
     
     plot_dual_heatmaps_pcolormesh(analytical_csv,spline_csv)

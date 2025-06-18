@@ -11,7 +11,6 @@ from dolfinx.nls.petsc import NewtonSolver
 
 from ufl import grad, inner, ln, Measure, derivative
 from scipy.interpolate import PchipInterpolator
-import ufl
 import multiprocessing
 import matplotlib.pyplot as plt
 import pandas as pd

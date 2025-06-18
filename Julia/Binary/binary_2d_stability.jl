@@ -103,9 +103,9 @@ function tend_generator(chi)
         tend = 30
     elseif 10 <= chi < 15
         tend = 15
-    elseif 15 <= chi < 20
+    elseif 15 <= chi < 18
         tend = 10
-    elseif 20 <= chi < 25
+    elseif 18 <= chi < 25
         tend = 8
     elseif 25 <= chi < 30
         tend = 5
@@ -555,45 +555,6 @@ function mol_solver(chi, N1, N2, dx, L, energy_method)
     
     f = ODEFunction(ode_system!; jac_prototype=float.(jac_sparsity))
 
-    #Set up stagnation bits
-    DT_THRESH = 1e-8
-    MAX_STEPS = 1000
-    
-    # stagnation_condition(u, t, integrator) = true
-
-    # function stagnation_affect!(integrator)
-    #     if integrator.dt < DT_THRESH
-    #         integrator.p[:small_dt_counter] += 1      # increment
-    #     else
-    #         integrator.p[:small_dt_counter] = 0       # reset
-    #     end
-
-    #     if integrator.p[:small_dt_counter] ≥ MAX_STEPS
-    #         error("Integrator stagnated: dt < $DT_THRESH for $MAX_STEPS consecutive steps")
-    #     end
-    # end
-
-    # cb = DiscreteCallback(stagnation_condition, stagnation_affect!)
-
-    # function stagnation_condition(u, t, integrator)
-    #     dt_small   = integrator.dt < DT_THRESH
-    #     new_time   = t > integrator.p[:last_event_t]   # prevents zero-length loop
-    #     return dt_small && new_time
-    # end
-    # function stagnation_affect!(integrator)
-    #     if integrator.dt < DT_THRESH
-    #         integrator.p[:small_dt_counter] += 1
-    #     else
-    #         integrator.p[:small_dt_counter] = 0     
-    #     end
-    #     if integrator.p[:small_dt_counter] ≥ MAX_STEPS
-    #         error("Integrator stagnated: dt < $DT_THRESH for $MAX_STEPS consecutive steps")
-    #     end
-    # end
-    # cb = DiscreteCallback(stagnation_condition, stagnation_affect!; save_positions=(false,false))
-
-    # p0   = Dict(:small_dt_counter => 0,
-    #         :last_event_t      => -Inf)
     prob = ODEProblem(f,c0,(0.0,tf))
     sol = solve(prob, TRBDF2(),reltol=1e-8, abstol=1e-8,maxiters=1e7)
 
@@ -684,8 +645,8 @@ function param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, L = 20.0, ene
     return min_dt_matrix
 end
 
-chi_values = 4:1:16
-dx_values = [0.1,0.16,0.2,0.25,0.4,0.5]
+chi_values = 4:1:18
+dx_values = [0.2,0.25,0.4,0.5,0.8]
 
 
 
@@ -721,5 +682,356 @@ p2= heatmap(dx_values, chi_values, log_min_dt_spline,
     title="TRBDF2, Spline",
     titlefont=Plots.font("Computer Modern",12),size=(500,500))
 
+"""
+Running backward euler
+"""
+# Residual function with Neumann boundary conditions
+function residual!(F, c_new, p)
+    c_old = p.c_old
+    dt = p.dt
+    dx = p.dx
+    dy = dx  # Assuming square grid
+    kappa = p.kappa
+    chi = p.chi
+    N1 = p.N1
+    N2 = p.N2
+    nx, ny = p.nx, p.ny
+    energy_method= p.energy_method
 
-p_all = plot(p1,p2, layout=2, size=(1400,700), dpi=300, leftmargin=3mm, righhmargin=3mm,bottommargin=3mm)
+    spline = spline_generator(chi, N1, N2,100)
+    if energy_method == "analytical"
+        dfdphi = phi -> dfdphi_ana(phi,chi,N1, N2)
+    else
+        dfdphi = phi -> spline.(phi)
+    end
+
+    # dfdphi = phi -> dfdphi_ana(phi,chi,N1,N2)
+
+    # Compute mu_new
+    mu_new = similar(c_new)
+
+    function M_func(phi)
+        return phi .* (1 .- phi)
+    end
+    
+    function M_func_half(phi1, phi2)
+        return M_func(0.5 .* (phi1 .+ phi2))
+    end
+
+    # Compute mu_new for all nodes
+    for i in 1:nx
+        for j in 1:ny
+                if i == 1 && j > 1 && j < ny
+                    laplacian_c = ((2.0 * (c_new[2,j] - c_new[1,j])) / dx^2) + (c_new[1,j+1] - 2.0 * c_new[1,j] + c_new[1,j-1]) / dy^2
+                elseif i == nx && j > 1 && j < ny
+                    laplacian_c = ((2.0 * (c_new[nx-1,j] - c_new[nx,j])) / dx^2) + (c_new[nx,j+1] - 2.0 * c_new[nx,j] + c_new[nx,j-1]) / dy^2
+                elseif j == 1 && i > 1 && i < nx
+                    laplacian_c = ((c_new[i+1,1] - 2.0 * c_new[i,1] + c_new[i-1,1]) / dx^2) + (2.0 * (c_new[i,2] - c_new[i,1])) / dy^2
+                elseif j == ny && i > 1 && i < nx
+                    laplacian_c = ((c_new[i+1,ny] - 2.0 * c_new[i,ny] + c_new[i-1,ny]) / dx^2) + (2.0 * (c_new[i,ny-1] - c_new[i,ny])) / dy^2
+                elseif i == 1 && j == 1
+                    laplacian_c = ((2.0 * (c_new[2,1] - c_new[1,1])) / dx^2) + (2.0 * (c_new[1,2] - c_new[1,1])) / dy^2
+                elseif i == nx && j == 1
+                    laplacian_c = ((2.0 * (c_new[nx-1,1] - c_new[nx,1])) / dx^2) + (2.0 * (c_new[nx,2] - c_new[nx,1])) / dy^2
+                elseif i == 1 && j == ny
+                    laplacian_c = ((2.0 * (c_new[2,ny] - c_new[1,ny])) / dx^2) + (2.0 * (c_new[1,ny-1] - c_new[1,ny])) / dy^2
+                elseif i == nx && j == ny
+                    laplacian_c = ((2.0 * (c_new[nx-1,ny] - c_new[nx,ny])) / dx^2) + (2.0 * (c_new[nx,ny-1] - c_new[nx,ny])) / dy^2
+                else
+                    # Interior nodes
+                    laplacian_c = (c_new[i+1,j] - 2.0 * c_new[i,j] + c_new[i-1,j]) / dx^2 + (c_new[i,j+1] - 2.0 * c_new[i,j] + c_new[i,j-1]) / dy^2
+                end
+                mu_new[i,j] = dfdphi(c_new[i,j]) - kappa*laplacian_c
+            end
+        end
+
+    # Compute residuals F
+    for i in 1:nx
+        for j in 1:ny
+            if i == 1 && j > 1 && j < ny
+                M_iphalf = M_func_half(c_new[1,j], c_new[2,j])
+                M_jphalf = M_func_half(c_new[1,j], c_new[1,j+1])
+                M_jmhalf = M_func_half(c_new[1,j], c_new[1,j-1])
+
+                Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,j] - mu_new[1,j]) / dx^2
+                Jy_jphalf = M_jphalf * (mu_new[1,j+1] - mu_new[1,j]) / dy^2
+                Jy_jmhalf = M_jmhalf * (mu_new[1,j] - mu_new[1,j-1]) / dy^2
+
+                div_J = Jx_iphalf + (Jy_jphalf - Jy_jmhalf)
+
+                F[1,j] = (c_new[1,j] - c_old[1,j]) / dt - div_J
+            elseif i == nx && j > 1 && j < ny
+                M_imhalf = M_func_half(c_new[nx,j], c_new[nx-1,j])
+                M_jphalf = M_func_half(c_new[nx,j], c_new[nx,j+1])
+                M_jmhalf = M_func_half(c_new[nx,j], c_new[nx,j-1])
+
+                Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,j] - mu_new[nx,j]) / dx^2
+                Jy_jphalf = M_jphalf * (mu_new[nx,j+1] - mu_new[nx,j]) / dy^2
+                Jy_jmhalf = M_jmhalf * (mu_new[nx,j] - mu_new[nx,j-1]) / dy^2
+
+                div_J = Jx_imhalf + (Jy_jphalf - Jy_jmhalf)
+
+                F[nx,j] = (c_new[nx,j] - c_old[nx,j]) / dt - div_J
+            elseif j == 1 && i > 1 && i < nx
+                M_iphalf = M_func_half(c_new[i,1], c_new[i+1,1])
+                M_imhalf = M_func_half(c_new[i,1], c_new[i-1,1])
+                M_jphalf = M_func_half(c_new[i,1], c_new[i,2])
+
+                Jx_iphalf = M_iphalf * (mu_new[i+1,1] - mu_new[i,1]) / dx^2
+                Jx_imhalf = M_imhalf * (mu_new[i,1] - mu_new[i-1,1]) / dx^2
+                Jy_jphalf = 2.0 * M_jphalf * (mu_new[i,2] - mu_new[i,1]) / dy^2
+
+                div_J = (Jx_iphalf - Jx_imhalf) + Jy_jphalf
+
+                F[i,1] = (c_new[i,1] - c_old[i,1]) / dt - div_J
+            elseif j == ny && i > 1 && i < nx
+                M_iphalf = M_func_half(c_new[i,ny], c_new[i+1,ny])
+                M_imhalf = M_func_half(c_new[i,ny], c_new[i-1,ny])
+                M_jmhalf = M_func_half(c_new[i,ny], c_new[i,ny-1])
+
+                Jx_iphalf = M_iphalf * (mu_new[i+1,ny] - mu_new[i,ny]) / dx^2
+                Jx_imhalf = M_imhalf * (mu_new[i,ny] - mu_new[i-1,ny]) / dx^2
+                Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[i,ny-1] - mu_new[i,ny]) / dy^2
+
+                div_J = (Jx_iphalf - Jx_imhalf) + Jy_jmhalf
+
+                F[i,ny] = (c_new[i,ny] - c_old[i,ny]) / dt - div_J
+            elseif i == 1 && j == 1
+                M_iphalf = M_func_half(c_new[1,1], c_new[2,1])
+                M_jphalf = M_func_half(c_new[1,1], c_new[1,2])
+
+                Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,1] - mu_new[1,1]) / dx^2
+                Jy_jphalf = 2.0 * M_jphalf * (mu_new[1,2] - mu_new[1,1]) / dy^2
+
+                div_J = Jx_iphalf + Jy_jphalf
+
+                F[1,1] = (c_new[1,1] - c_old[1,1]) / dt - div_J
+            elseif i == nx && j == 1
+                M_imhalf = M_func_half(c_new[nx,1], c_new[nx-1,1])
+                M_jphalf = M_func_half(c_new[nx,1], c_new[nx,2])
+
+                Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,1] - mu_new[nx,1]) / dx^2
+                Jy_jphalf = 2.0 * M_jphalf * (mu_new[nx,2] - mu_new[nx,1]) / dy^2
+
+                div_J = Jx_imhalf + Jy_jphalf
+
+                F[nx,1] = (c_new[nx,1] - c_old[nx,1]) / dt - div_J
+            elseif i == 1 && j == ny
+                M_iphalf = M_func_half(c_new[1,ny], c_new[2,ny])
+                M_jmhalf = M_func_half(c_new[1,ny], c_new[1,ny-1])
+
+                Jx_iphalf = 2.0 * M_iphalf * (mu_new[2,ny] - mu_new[1,ny]) / dx^2
+                Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[1,ny-1] - mu_new[1,ny]) / dy^2
+
+                div_J = Jx_iphalf + Jy_jmhalf
+
+                F[1,ny] = (c_new[1,ny] - c_old[1,ny]) / dt - div_J
+            elseif i == nx && j == ny
+                M_imhalf = M_func_half(c_new[nx,ny], c_new[nx-1,ny])
+                M_jmhalf = M_func_half(c_new[nx,ny], c_new[nx,ny-1])
+
+                Jx_imhalf = 2.0 * M_imhalf * (mu_new[nx-1,ny] - mu_new[nx,ny]) / dx^2
+                Jy_jmhalf = 2.0 * M_jmhalf * (mu_new[nx,ny-1] - mu_new[nx,ny]) / dy^2
+
+                div_J = Jx_imhalf + Jy_jmhalf
+
+                F[nx,ny] = (c_new[nx,ny] - c_old[nx,ny]) / dt - div_J
+
+            else
+                # Interior nodes
+                M_iphalf = M_func_half(c_new[i,j], c_new[i+1,j])
+                M_imhalf = M_func_half(c_new[i,j], c_new[i-1,j])
+                M_jphalf = M_func_half(c_new[i,j], c_new[i,j+1])
+                M_jmhalf = M_func_half(c_new[i,j], c_new[i,j-1])
+
+                Jx_iphalf = M_iphalf * (mu_new[i+1,j] - mu_new[i,j]) / dx^2
+                Jx_imhalf = M_imhalf * (mu_new[i,j] - mu_new[i-1,j]) / dx^2
+                Jy_jphalf = M_jphalf * (mu_new[i,j+1] - mu_new[i,j]) / dy^2
+                Jy_jmhalf = M_jmhalf * (mu_new[i,j] - mu_new[i,j-1]) / dy^2
+
+                div_J = (Jx_iphalf - Jx_imhalf) + (Jy_jphalf - Jy_jmhalf)
+
+                F[i,j] = (c_new[i,j] - c_old[i,j]) / dt - div_J
+            end
+        end
+    end
+end
+
+function impliciteuler_2d(chi, N1, N2, dx, L, dt, energy_method)
+    L = L
+    tf = tend_generator(chi)
+    nx = Int(L / dx) + 1
+    ny = nx  # Assuming square domain
+    x = range(0, L, length = nx)
+    nt = Int(tf / dt)
+    if N1/N2 < 10
+        kappa = (1 / 3) * chi
+    else
+        kappa = (2/3)*chi
+    end
+
+    # Initial condition: small random perturbation around c0
+    c0 = 0.5
+    c = c0 .+ 0.02 * (rand(nx, ny) .- 0.5)
+
+
+
+    for n = 1:nt
+        println("Time step: $n, Time: $(n*dt)")
+
+        # Save the old concentration profile
+        c_old = copy(c)
+
+        # Parameters to pass to the residual function
+        p = (c_old = c_old, dt = dt, dx = dx, kappa = kappa, chi = chi, nx = nx, ny = ny, N1 = N1, N2 = N2, energy_method=energy_method)
+
+        # # Initial guess for c_new
+        # c_guess = copy(c_old)
+
+        # Create the NonlinearProblem with sparsity bits
+        prob_sparse = NonlinearProblem(NonlinearFunction(residual!; sparsity = TracerLocalSparsityDetector()),
+                                                        c_old, p)
+
+        # problem = NonlinearProblem(residual!, c_old, p)
+
+        # Solve the nonlinear system
+        term_cond = AbsNormSafeTerminationMode(
+            NonlinearSolve.L2_NORM; protective_threshold = nothing,
+            patience_steps = 100, patience_objective_multiplier = 3,
+            min_max_factor = 1.3,
+            )
+
+        solver = solve(prob_sparse, NewtonRaphson(linsolve = KLUFactorization()), show_trace = Val(false),termination_condition=term_cond,abstol=1e-8, maxiters=1000)
+        
+        println("non-linear iterations : ", solver.stats.nsteps)
+        # Update c for the next time step
+        c_new_vec = solver.u
+        c = reshape(c_new_vec, nx, ny)
+
+        if norm(solver.resid,Inf) > 1e-7 || any(x -> x>1 || x < 0, c)
+            error("Sovler did not converge")
+        end
+
+    end
+end
+
+function run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, L=20, energy_method="analytical", dt_start=1.0, dt_min=1e-4,results_file)
+
+    # Load existing results if the file exists
+    results = Dict()
+    if isfile(results_file)
+        existing_data = CSV.read(results_file, DataFrame)
+        for row in eachrow(existing_data)
+            key = (row.chi, row.dx)
+            results[key] = row.largest_stable_dt
+        end
+    end
+
+    # Function to attempt a simulation given parameters and dt
+    function try_simulation(chi, N1, N2, dx, L, dt, energy_method)
+        try
+            impliciteuler_2d(chi, N1, N2, dx, L, dt, energy_method)
+            # If we get here, it means the simulation ran without throwing an error.
+            return true
+        catch e
+            # If there's an error, consider the simulation failed
+            return false
+        end
+    end
+
+    # Function to find the largest stable dt for given chi and dx
+    function find_largest_stable_dt(chi, N1, N2, dx, L; energy_method="analytical", dt_start=1.0, dt_min=1e-4)
+        dt = dt_start
+        while dt >= dt_min
+            println("Testing chi=$chi, dx=$dx with dt=$dt,energy_method=$energy_method, Timestepping = Backward Euler")
+            success = try_simulation(chi, N1, N2, dx, L, dt, energy_method)
+            if success
+                # If successful, we found a stable dt
+                println("Min dt for chi=$chi and dx=$dx is dt=$dt")
+                return dt
+            else
+                dt /= 2
+            end
+        end
+        # If we reach here, no stable dt was found above dt_min
+        println("Failed :(")
+        return NaN
+    end
+
+    # Initialize the matrix to hold the largest stable dt
+    largest_stable_dt = fill(NaN, length(chi_values), length(dx_values))
+
+    # DataFrame to store new results
+    new_results = DataFrame(chi=Float64[], dx=Float64[], largest_stable_dt=Float64[])
+
+    # Sweep through chi_values and dx_values
+    for (i, chi) in enumerate(chi_values)
+        for (j, dx) in enumerate(dx_values)
+            key = (chi, dx)
+            # Reuse result if available
+            if haskey(results, key)
+                println("Reusing result for chi=$chi, dx=$dx, energy_method=$energy_method, Timestepping = Backward Euler")
+                largest_stable_dt[i, j] = results[key]
+            else
+                dt_found = find_largest_stable_dt(chi, N1, N2, dx, L; energy_method=energy_method, dt_start=dt_start, dt_min=dt_min)
+                largest_stable_dt[i,j] = dt_found
+                # Save the result to the new DataFrame
+                push!(new_results, (chi, dx, dt_found))
+                # results[key] = dt_found
+            end
+            
+        end
+    end
+
+    # Append new results to the CSV file
+    if !isempty(new_results)
+        if isfile(results_file)
+            # Combine existing data with new results and save
+            combined_data = vcat(CSV.read(results_file, DataFrame), new_results)
+            CSV.write(results_file, combined_data)
+        else
+            # Save new results if file doesn't exist
+            CSV.write(results_file, new_results)
+        end
+    end
+    return largest_stable_dt
+end
+
+### Test Backwards Euler    
+
+chi_values_be = 4:1:20
+dx_values_be = [0.4,0.5,0.8]
+
+dt_vals_backwards_euler_ana = run_dt_sweep(chi_values_be, dx_values_be; N1=1.0, N2=1.0, energy_method="analytical", dt_start=0.03125, dt_min=1e-4,results_file=joinpath(datadir,"2d_dt_be_ana.csv"))
+log_dt_be_ana = log10.(dt_vals_backwards_euler_ana)
+finite_values_be_ana = log_dt_be_ana[.!isnan.(log_dt_be_ana)]
+cmin_be_ana = minimum(finite_values_be_ana)
+cmax_be_ana = maximum(finite_values_be_ana)
+
+p3= heatmap(dx_values_be, chi_values_be, log_dt_be_ana,
+    xlabel=L"\Delta x", ylabel=L"\chi_{12}",
+    color=:viridis, nan_color=:grey,
+    clims=(cmin_be_ana, cmax_be_ana),
+    colorbar_title = L"\log_{10}(\max(\Delta t))",
+    xscale = :log10, grid=false,tickfont=Plots.font("Computer Modern", 10),
+    title="Backward Euler, Full",
+    titlefont=Plots.font("Computer Modern",12),size=(500,500))
+
+
+dt_vals_backwards_euler_spline = run_dt_sweep(chi_values_be, dx_values_be; N1=1.0, N2=1.0, energy_method="spline", dt_start=0.25, dt_min=1e-4,results_file=joinpath(datadir,"2d_dt_be_spline.csv"))
+log_dt_be_spline = log10.(dt_vals_backwards_euler_spline)
+finite_values_be_spline = log_dt_be_spline[.!isnan.(log_dt_be_spline)]
+cmin_be_spline = minimum(finite_values_be_spline)
+cmax_be_spline = maximum(finite_values_be_spline)
+
+p4= heatmap(dx_values_be, chi_values_be, log_dt_be_spline,
+    xlabel=L"\Delta x", ylabel=L"\chi_{12}",
+    color=:viridis, nan_color=:grey,
+    clims=(cmin_be_ana, cmax_be_ana),
+    colorbar_title = L"\log_{10}(\max(\Delta t))",
+    xscale = :log10, grid=false,tickfont=Plots.font("Computer Modern", 10),
+    title="Backward Euler, Spline",
+    titlefont=Plots.font("Computer Modern",12),size=(500,500))
+
+
+p_all = plot(p1,p2,p3,p4, layout=4, size=(1400,1400), dpi=300, leftmargin=3mm, righhmargin=3mm,bottommargin=3mm)
