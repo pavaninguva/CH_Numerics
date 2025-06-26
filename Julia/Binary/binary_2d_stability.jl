@@ -645,8 +645,8 @@ function param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, L = 20.0, ene
     return min_dt_matrix
 end
 
-chi_values = 4:1:18
-dx_values = [0.2,0.25,0.4,0.5,0.8]
+chi_values = 4:1:17
+dx_values = [0.08,0.1,0.16,0.2,0.25,0.4,0.5,0.8]
 
 
 
@@ -999,8 +999,8 @@ end
 
 ### Test Backwards Euler    
 
-chi_values_be = 4:1:20
-dx_values_be = [0.4,0.5,0.8]
+chi_values_be = 4:1:19
+dx_values_be = [0.16,0.2,0.25,0.4,0.5,0.8]
 
 dt_vals_backwards_euler_ana = run_dt_sweep(chi_values_be, dx_values_be; N1=1.0, N2=1.0, energy_method="analytical", dt_start=0.03125, dt_min=1e-4,results_file=joinpath(datadir,"2d_dt_be_ana.csv"))
 log_dt_be_ana = log10.(dt_vals_backwards_euler_ana)
