@@ -257,7 +257,7 @@ if __name__ == '__main__':
         values = 0.3 + 0.02*(0.5-np.random.rand(x.shape[1]))
         return values
     
-    deltax_values = np.array([0.25,0.4,0.5,0.8])
+    deltax_values = np.array([0.16,0.2,0.25,0.4,0.5,0.8])
     chi_values = np.array([3.0,4.0,5.0,6.0,7.0,8.0])
 
     analytical_csv = "./2d_full_min_dt_ternary_fenics.csv"

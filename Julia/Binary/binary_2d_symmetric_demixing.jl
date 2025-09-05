@@ -361,10 +361,12 @@ function impliciteuler_2d(chi, N1, N2, dx, L, dt, tf, energy_method,save_vtk=fal
         # c_guess = copy(c_old)
 
         # Create the NonlinearProblem
-        problem = NonlinearProblem(residual!, c_old, p)
+        # problem = NonlinearProblem(residual!, c_old, p)
+        prob_sparse = NonlinearProblem(NonlinearFunction(residual!; sparsity = TracerLocalSparsityDetector()),
+                                                        c_old, p)
 
         # Solve the nonlinear system
-        solver = solve(problem, NewtonRaphson(linsolve = KrylovJL_GMRES()), show_trace = Val(false))
+        solver = solve(prob_sparse, NewtonRaphson(linsolve =  KLUFactorization()), show_trace = Val(false),abstol=1e-8)
         
         # Update c for the next time step
         c_new_vec = solver.u
@@ -635,51 +637,51 @@ end
 """
 Backwards Euler, Full
 """
-# c_avg_be_full1, energy_be_full1, time_vals_be_full1 = impliciteuler_2d(6.0,1,1,0.4,20,0.1,50,"analytical",false)
-# c_avg_be_full2, energy_be_full2, time_vals_be_full2 = impliciteuler_2d(6.0,1,1,0.2,20,0.05,50,"analytical",false)
-# c_avg_be_full3, energy_be_full3, time_vals_be_full3 = impliciteuler_2d(6.0,1,1,0.1,20,0.025,50,"analytical",false)
+c_avg_be_full1, energy_be_full1, time_vals_be_full1 = impliciteuler_2d(6.0,1,1,0.4,20,0.1,30,"analytical",false)
+c_avg_be_full2, energy_be_full2, time_vals_be_full2 = impliciteuler_2d(6.0,1,1,0.2,20,0.05,30,"analytical",false)
+c_avg_be_full3, energy_be_full3, time_vals_be_full3 = impliciteuler_2d(6.0,1,1,0.1,20,0.025,30,"analytical",true)
 
-# #Save c_avg and energy data as csv
-# for (suffix, c_avg, energy, tvals) in (
-#     ("dx_04_dt_01", c_avg_be_full1, energy_be_full1, time_vals_be_full1),
-#     ("dx_02_dt_005", c_avg_be_full2, energy_be_full2, time_vals_be_full2),
-#     ("dx_01_dt_0025", c_avg_be_full3, energy_be_full3, time_vals_be_full3),
-# )
-#     df = DataFrame(
-#     time = tvals,
-#     c_avg = c_avg,
-#     energy = energy,
-#     )
-#     fname = @sprintf("backwardseuler2d_full_%s.csv", suffix)
-#     CSV.write(fname, df)
-#     println("Wrote $fname")
-# end
-
-const suffix_map = [
-  ("dx_04_dt_01", "full1"),
-  ("dx_02_dt_005", "full2"),
-  ("dx_01_dt_0025", "full3"),
-]
-
-for (file_sfx, var_sfx) in suffix_map
-    fname = joinpath(datadir, "backwardseuler2d_full_$(file_sfx).csv")
-    println("Reading ", fname)
-    df = CSV.read(fname, DataFrame)
-
-    tvals = df.time
-    cavg  = df.c_avg
-    energ = df.energy
-
-    t_sym = Symbol("time_vals_be_$(var_sfx)")
-    c_sym = Symbol("c_avg_be_$(var_sfx)")
-    e_sym = Symbol("energy_be_$(var_sfx)")
-
-    @eval Main begin
-      $(t_sym) = $tvals
-      $(c_sym) = $cavg
-      $(e_sym) = $energ
-    end
+#Save c_avg and energy data as csv
+for (suffix, c_avg, energy, tvals) in (
+    ("dx_04_dt_01", c_avg_be_full1, energy_be_full1, time_vals_be_full1),
+    ("dx_02_dt_005", c_avg_be_full2, energy_be_full2, time_vals_be_full2),
+    ("dx_01_dt_0025", c_avg_be_full3, energy_be_full3, time_vals_be_full3),
+)
+    df = DataFrame(
+    time = tvals,
+    c_avg = c_avg,
+    energy = energy,
+    )
+    fname = @sprintf("backwardseuler2d_full_%s.csv", suffix)
+    CSV.write(fname, df)
+    println("Wrote $fname")
 end
+
+# const suffix_map = [
+#   ("dx_04_dt_01", "full1"),
+#   ("dx_02_dt_005", "full2"),
+#   ("dx_01_dt_0025", "full3"),
+# ]
+
+# for (file_sfx, var_sfx) in suffix_map
+#     fname = joinpath(datadir, "backwardseuler2d_full_$(file_sfx).csv")
+#     println("Reading ", fname)
+#     df = CSV.read(fname, DataFrame)
+
+#     tvals = df.time
+#     cavg  = df.c_avg
+#     energ = df.energy
+
+#     t_sym = Symbol("time_vals_be_$(var_sfx)")
+#     c_sym = Symbol("c_avg_be_$(var_sfx)")
+#     e_sym = Symbol("energy_be_$(var_sfx)")
+
+#     @eval Main begin
+#       $(t_sym) = $tvals
+#       $(c_sym) = $cavg
+#       $(e_sym) = $energ
+#     end
+# end
 
 p1 = plot(
     xlabel = L"t",
@@ -720,11 +722,11 @@ plot!(p1_axis2,time_vals_be_full3,energy_be_full3;color=:red,linestyle=:dot,labe
 
 """
 Backwards Euler Spline
-"""
-# c_avg_be_spline1, energy_be_spline1, time_vals_be_spline1 = impliciteuler_2d(6.0,1,1,0.4,20,0.1,50,"spline",false)
-# c_avg_be_spline2, energy_be_spline2, time_vals_be_spline2 = impliciteuler_2d(6.0,1,1,0.2,20,0.05,50,"spline",false)
-# c_avg_be_spline3, energy_be_spline3, time_vals_be_spline3 = impliciteuler_2d(6.0,1,1,0.1,20,0.025,50,"spline",true)
-# #Save c_avg and energy data as csv
+# """
+# c_avg_be_spline1, energy_be_spline1, time_vals_be_spline1 = impliciteuler_2d(6.0,1,1,0.4,20,0.1,30,"spline",false)
+# c_avg_be_spline2, energy_be_spline2, time_vals_be_spline2 = impliciteuler_2d(6.0,1,1,0.2,20,0.05,30,"spline",false)
+# c_avg_be_spline3, energy_be_spline3, time_vals_be_spline3 = impliciteuler_2d(6.0,1,1,0.1,20,0.025,30,"spline",false)
+#Save c_avg and energy data as csv
 # for (suffix, c_avg, energy, tvals) in (
 #     ("dx_04_dt_01", c_avg_be_spline1, energy_be_spline1, time_vals_be_spline1),
 #     ("dx_02_dt_005", c_avg_be_spline2, energy_be_spline2, time_vals_be_spline2),
@@ -803,13 +805,13 @@ plot!(
 plot!(p2_axis2,time_vals_be_spline2,energy_be_spline2;color=:red,linestyle=:solid,label="")
 plot!(p2_axis2,time_vals_be_spline3,energy_be_spline3;color=:red,linestyle=:dot,label="")
 
-# """
-# TRBDF2 Analytical
-# """
+"""
+TRBDF2 Analytical
+"""
 
-# c_avg_bdf_full1, energy_bdf_full1, time_vals_bdf_full1 = mol_solver(6,1,1,0.4,20,50,"analytical")
-# c_avg_bdf_full2, energy_bdf_full2, time_vals_bdf_full2 = mol_solver(6,1,1,0.2,20,50,"analytical")
-# c_avg_bdf_full3, energy_bdf_full3, time_vals_bdf_full3 = mol_solver(6,1,1,0.1,20,50,"analytical")
+# c_avg_bdf_full1, energy_bdf_full1, time_vals_bdf_full1 = mol_solver(6,1,1,0.4,20,30,"analytical")
+# c_avg_bdf_full2, energy_bdf_full2, time_vals_bdf_full2 = mol_solver(6,1,1,0.2,20,30,"analytical")
+# c_avg_bdf_full3, energy_bdf_full3, time_vals_bdf_full3 = mol_solver(6,1,1,0.1,20,30,"analytical")
 
 # for (suffix, c_avg, energy, tvals) in (
 #     ("dx_04", c_avg_bdf_full1, energy_bdf_full1, time_vals_bdf_full1),
@@ -891,13 +893,13 @@ plot!(p3_axis2,time_vals_bdf_full2,energy_bdf_full2;color=:red,linestyle=:solid,
 plot!(p3_axis2,time_vals_bdf_full3,energy_bdf_full3;color=:red,linestyle=:dot,label="")
 
 
-# """
-# TRBDF2 Spline
-# """
+"""
+TRBDF2 Spline
+"""
 
-# c_avg_bdf_spline1, energy_bdf_spline1, time_vals_bdf_spline1 = mol_solver(6,1,1,0.4,20,50,"spline")
-# c_avg_bdf_spline2, energy_bdf_spline2, time_vals_bdf_spline2 = mol_solver(6,1,1,0.2,20,50,"spline")
-# c_avg_bdf_spline3, energy_bdf_spline3, time_vals_bdf_spline3 = mol_solver(6,1,1,0.1,20,50,"spline",true)
+# c_avg_bdf_spline1, energy_bdf_spline1, time_vals_bdf_spline1 = mol_solver(6,1,1,0.4,20,30,"spline")
+# c_avg_bdf_spline2, energy_bdf_spline2, time_vals_bdf_spline2 = mol_solver(6,1,1,0.2,20,30,"spline")
+# c_avg_bdf_spline3, energy_bdf_spline3, time_vals_bdf_spline3 = mol_solver(6,1,1,0.1,20,30,"spline")
 
 
 # for (suffix, c_avg, energy, tvals) in (

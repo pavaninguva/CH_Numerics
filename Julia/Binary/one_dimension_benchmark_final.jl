@@ -12,7 +12,7 @@ using LaTeXStrings
 using DifferentialEquations
 using CSV
 using Plots.PlotMeasures
-include("../Julia/pchip.jl") 
+include("../pchip.jl") 
 
 """
 This script tests the ability of the solvers to converge 
@@ -299,6 +299,7 @@ function param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method
     # Load existing results if the file exists
     results = Dict()
     if isfile(results_file)
+        println("beep")
         existing_data = CSV.read(results_file, DataFrame)
         for row in eachrow(existing_data)
             key = (row.chi, row.dx)
@@ -314,40 +315,33 @@ function param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method
             if haskey(results, key)
                 println("Reusing result for chi=$chi, dx=$dx, energy_method=$energy_method, timestepping=BDF")
                 min_dt_matrix[i, j] = results[key]
-                continue  # Skip to the next parameter combination
-            end
-
-            println("Running simulation for chi=$chi, dx=$dx, energy_method=$energy_method, timestepping=BDF")
-            sol = nothing
-            try
-                sol = mol_solver(chi, N1, N2, dx, energy_method)
-            catch e
-                @warn "Solver failed for chi=$chi, dx=$dx with error $e"
-                min_dt_matrix[i, j] = NaN
-                continue
-            end
-
-            # Check solver return code for divergence
-            if sol.retcode == :Diverged || sol.retcode == :Failure
-                @warn "Solver diverged or failed for chi=$chi, dx=$dx"
-                min_dt_matrix[i,j] = NaN
-                continue
-            end
-
-            t_values = sol.t
-            if length(t_values) > 1
-                dt_values = diff(t_values)
-                min_dt = minimum(dt_values)
-                min_dt_matrix[i, j] = min_dt
             else
-                # Solver didn't advance
-                @warn "Solver did not advance for chi=$chi, dx=$dx"
-                min_dt_matrix[i, j] = NaN
-            end
+                println("Running simulation for chi=$chi, dx=$dx, energy_method=$energy_method, timestepping=BDF")
+                sol = nothing
+                try
+                    sol = mol_solver(chi, N1, N2, dx, energy_method)
+                    # Check solver return code for divergence
+                    if sol.retcode == :Diverged || sol.retcode == :Failure
+                        @warn "Solver diverged or failed for chi=$chi, dx=$dx"
+                        min_dt_matrix[i,j] = NaN
+                    else
+                        t_values = sol.t
+                        if length(t_values) > 1
+                            min_dt_matrix[i, j] = minimum(diff(t_values))
+                        else
+                            # Solver didn't advance
+                            @warn "Solver did not advance for chi=$chi, dx=$dx"
+                            min_dt_matrix[i, j] = NaN
+                        end
+                    end
+                catch e
+                    @warn "Solver failed for chi=$chi, dx=$dx with error $e"
+                    min_dt_matrix[i, j] = NaN
+                end
 
-            # Save the result to the new DataFrame
-            push!(new_results, (chi, dx, min_dt))
-            results[key] = min_dt
+                # Save the result to the new DataFrame
+                push!(new_results, (chi, dx, min_dt_matrix[i,j]))
+            end
         end
     end
     # Append new results to the CSV file
@@ -361,7 +355,6 @@ function param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method
             CSV.write(results_file, new_results)
         end
     end
-
     return min_dt_matrix
 end
 
@@ -369,8 +362,8 @@ end
 chi_values = 6:1:30 
 dx_values = [0.02,0.025,0.04,0.05,0.08,0.1,0.16,0.2] 
 
-min_dt_matrix_spline = param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline",results_file="./1d_stability_data/1d_dt_bdf_spline.csv")
-min_dt_matrix_analytical = param_sweep_min_dt(chi_values,dx_values,N1=1.0,N2=1.0,energy_method="analytical",results_file="./1d_stability_data/1d_dt_bdf_ana.csv")
+min_dt_matrix_spline = param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline",results_file="/mnt/c/Users/Pavan/Projects/CH_Numerics/Julia/Binary/1d_stability_data/1d_dt_bdf_spline.csv")
+min_dt_matrix_analytical = param_sweep_min_dt(chi_values,dx_values,N1=1.0,N2=1.0,energy_method="analytical",results_file="/mnt/c/Users/Pavan/Projects/CH_Numerics/Julia/Binary/1d_stability_data/1d_dt_bdf_ana.csv")
 
 log_min_dt_spline = log10.(min_dt_matrix_spline)
 finite_values_spline = log_min_dt_spline[.!isnan.(log_min_dt_spline)]
@@ -488,7 +481,7 @@ function run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="anal
     return largest_stable_dt
 end
 
-dt_vals_backwards_euler_ana = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="analytical", dt_start=0.25, dt_min=1e-4,results_file="./1d_stability_data/1d_dt_ie_ana.csv")
+dt_vals_backwards_euler_ana = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="analytical", dt_start=0.25, dt_min=1e-4,results_file="/mnt/c/Users/Pavan/Projects/CH_Numerics/Julia/Binary/1d_stability_data/1d_dt_ie_ana.csv")
 log_dt_be_ana = log10.(dt_vals_backwards_euler_ana)
 finite_values_be_ana = log_dt_be_ana[.!isnan.(log_dt_be_ana)]
 cmin_be_ana = minimum(finite_values_be_ana)
@@ -500,11 +493,11 @@ p3= heatmap(dx_values, chi_values, log_dt_be_ana,
     clims=(cmin_be_ana, cmax_be_ana),
     colorbar_title = L"\log_{10}(\max(\Delta t))",
     xscale = :log10, grid=false,tickfont=Plots.font("Computer Modern", 10),
-    title="Backward Euler, Full",
+    title="Backwards Euler, Full",
     titlefont=Plots.font("Computer Modern",12),size=(500,500))
 
 
-dt_vals_backwards_euler_spline = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline", dt_start=0.25, dt_min=1e-4,results_file="./1d_stability_data/1d_dt_ie_spline.csv")
+dt_vals_backwards_euler_spline = run_dt_sweep(chi_values, dx_values; N1=1.0, N2=1.0, energy_method="spline", dt_start=0.25, dt_min=1e-4,results_file="/mnt/c/Users/Pavan/Projects/CH_Numerics/Julia/Binary/1d_stability_data/1d_dt_ie_spline.csv")
 log_dt_be_spline = log10.(dt_vals_backwards_euler_spline)
 finite_values_be_spline = log_dt_be_spline[.!isnan.(log_dt_be_spline)]
 cmin_be_spline = minimum(finite_values_be_spline)
@@ -516,9 +509,9 @@ p4= heatmap(dx_values, chi_values, log_dt_be_spline,
     clims=(cmin_be_ana, cmax_be_ana),
     colorbar_title = L"\log_{10}(\max(\Delta t))",
     xscale = :log10, grid=false,tickfont=Plots.font("Computer Modern", 10),
-    title="Backward Euler, Spline",
+    title="Backwards Euler, Spline",
     titlefont=Plots.font("Computer Modern",12),size=(500,500))
 
 
 p_all = plot(p1,p2,p3,p4, layout=4, size=(1400,1400), dpi=300, leftmargin=3mm)
-# savefig(p_all,"1d_benchmark1.png")
+savefig(p_all,"1d_benchmark1.png")

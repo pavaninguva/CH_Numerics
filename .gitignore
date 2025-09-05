@@ -5,6 +5,7 @@
 *.gif
 *.vti
 be_*
+*.png
 
 #Code noise
 *.pyc

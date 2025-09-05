@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.interpolate import PchipInterpolator
 from scipy.interpolate import CloughTocher2DInterpolator
+from scipy.interpolate import RectBivariateSpline
 
 
 
@@ -50,6 +51,13 @@ class Pchip2D:
             # 3) evaluate y-spline over those y's
             zf[mask] = ysp(yf[mask])
 
+            if not np.isfinite(Wj).all():
+                bad_idx = np.where(~np.isfinite(Wj))[0]
+                bad_vals = Wj[bad_idx]
+                raise ValueError(
+                    f"Non-finite Wj at x={xval!r} for rows {bad_idx.tolist()}: {bad_vals.tolist()}"
+                )
+
         # reshape back
         return zf.reshape(shape)
 
@@ -96,7 +104,6 @@ def generate_spline_dfdphi1(chi12, chi13, N1, knots):
     knots       : number of uniform knots per dimension
     returns     : callable spline phi1,phi2 -> dfdphi1(phi1,phi2)
     """
-    domain_min, domain_max = 1e-16, 1 - 1e-16
 
     # the "true" 2D derivative function
     def dfdphi1(phi1, phi2):
@@ -105,8 +112,8 @@ def generate_spline_dfdphi1(chi12, chi13, N1, knots):
                + chi13*(1 - phi1 - phi2)
 
     # build uniform grid of knots
-    phi1_knots = np.linspace(domain_min, domain_max, knots)
-    phi2_knots = np.linspace(domain_min, domain_max, knots)
+    phi1_knots = np.linspace(1e-16, 1, knots)
+    phi2_knots = np.linspace(0, 1, knots)
     P1, P2 = np.meshgrid(phi1_knots, phi2_knots, indexing='ij')
     Z = dfdphi1(P1, P2)
 
@@ -115,7 +122,8 @@ def generate_spline_dfdphi1(chi12, chi13, N1, knots):
     
 
     # build and return the tensor‐product PCHIP
-    spline2d = Pchip2D(phi1_knots_spline, phi2_knots_spline, Z)
+    # spline2d = Pchip2D(phi1_knots_spline, phi2_knots_spline, Z)
+    spline2d = RectBivariateSpline(phi1_knots_spline,phi2_knots_spline,Z, s=0)
     return spline2d
 
 def generate_spline_dfdphi2(chi12, chi23, N2, knots):
@@ -134,8 +142,8 @@ def generate_spline_dfdphi2(chi12, chi23, N2, knots):
                + chi23*(1 - phi1 - phi2)
 
     # build uniform grid of knots
-    phi1_knots = np.linspace(domain_min, domain_max, knots)
-    phi2_knots = np.linspace(domain_min, domain_max, knots)
+    phi1_knots = np.linspace(0, 1, knots)
+    phi2_knots = np.linspace(1e-16, 1, knots)
     P1, P2 = np.meshgrid(phi1_knots, phi2_knots, indexing='ij')
     Z = dfdphi2(P1, P2)
 
@@ -144,6 +152,7 @@ def generate_spline_dfdphi2(chi12, chi23, N2, knots):
 
     # build and return the tensor‐product PCHIP
     spline2d = Pchip2D(phi1_knots_spline, phi2_knots_spline, Z)
+    # spline2d = RectBivariateSpline(phi1_knots_spline,phi2_knots_spline,Z, s=0)
     return spline2d
 
 """
@@ -175,17 +184,17 @@ def generate_spline_dfdphi3(chi13,chi23,N3,knots, return_knots=False):
 
     dfdc_int = dfdphi3(phi1_int,phi2_int)
 
-    phi1_b = np.linspace(1e-15,1-1e-15,knots)
-    phi2_b = 1 - phi1_b
+    phi1_b_ = np.linspace(1e-15,1-1e-15,knots)
+    phi2_b_ = 1 - phi1_b_
 
-    phi3_b = 1 - phi1_b - phi2_b
+    phi3_b = 1 - phi1_b_ - phi2_b_
     phi3_b = np.clip(phi3_b,1e-16,None)
 
     dfdc_b = (
         (1/N3)*np.log(phi3_b)
         +(1/N3)
-        +chi13*phi1_b
-        +chi23*phi2_b
+        +chi13*phi1_b_
+        +chi23*phi2_b_
     )
 
     #Set up spline bits
@@ -195,14 +204,22 @@ def generate_spline_dfdphi3(chi13,chi23,N3,knots, return_knots=False):
     phi2_int_ = np.where(np.isclose(phi2_int, 1e-16), 0.0,
             np.where(np.isclose(phi2_int, 1-1e-16), 1.0, phi2_int))
     
-    phi1_b_ = np.linspace(1e-15,1- 1e-15,knots)
-    phi2_b_ = 1 - phi1_b_
+    # phi1_b_ = np.linspace(1e-15,1- 1e-15,knots)
+    # phi2_b_ = 1 - phi1_b_
+
+    # dfdc_b_ = 
 
     phi1_all = np.concatenate([phi1_int_, phi1_b_])
     phi2_all= np.concatenate([phi2_int_, phi2_b_])
     dfdc_all = np.concatenate([dfdc_int, dfdc_b])
 
-    spline = CloughTocher2DInterpolator(list(zip(phi1_all,phi2_all)),dfdc_all)
+    # phi1_all = phi1_int_
+    # phi2_all= phi2_int_
+    # dfdc_all = dfdc_int
+
+    
+
+    spline = CloughTocher2DInterpolator(list(zip(phi1_all,phi2_all)),dfdc_all,fill_value=dfdc_all.min())
 
     if return_knots:
         return spline, phi1_all.size

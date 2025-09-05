@@ -275,7 +275,7 @@ def cahn_hilliard_spline(ic_fun_a, ic_fun_b, chi12, chi13, chi23, N1,N2,N3,strid
 
     #Solver parameters
     max_iter = 100
-    rel_tol = 1e-6
+    rel_tol = 1e-5
     abs_tol = 1e-8
 
     if return_data:
@@ -305,9 +305,10 @@ def cahn_hilliard_spline(ic_fun_a, ic_fun_b, chi12, chi13, chi23, N1,N2,N3,strid
     a0, b0, mu_AB0, mu_AC0, mu_BC0 = ufl.split(u0)
 
     #Generate splines and set up external operator
-    dfda_spline = generate_spline_dfdphi1(chi12,chi13,N1,400)
-    dfdb_spline = generate_spline_dfdphi2(chi12,chi23,N2,400)
-    dfdc_spline = generate_spline_dfdphi3(chi13,chi23,N3,400)
+    dfda_spline = generate_spline_dfdphi1(chi12,chi13,N1,500)
+    dfdb_spline = generate_spline_dfdphi2(chi12,chi23,N2,500)
+    dfdc_spline = generate_spline_dfdphi3(chi13,chi23,N3,500)
+
 
     quadrature_degree = 2
     Qe=quadrature_element(domain.topology.cell_name(), degree=quadrature_degree, value_shape=())
@@ -319,15 +320,21 @@ def cahn_hilliard_spline(ic_fun_a, ic_fun_b, chi12, chi13, chi23, N1,N2,N3,strid
     dfda = FEMExternalOperator(a,b,function_space=Q)
     dfdb = FEMExternalOperator(a,b,function_space=Q)
     dfdc = FEMExternalOperator(a,b,function_space=Q)
+    # dfda = (1/N1)*ln(a) + (1/N1) + chi12*b + chi13*(1-a-b)
+    # dfdb = (1/N2)*ln(b) + (1/N2) + chi12*a + chi23*(1-a-b)
+    # dfdc =  (1/N3)*ln(1-a-b) + (1/N3) + chi13*a + chi23*b
+
 
     def dfda_impl(a,b):
-        output = dfda_spline(a,b)
+        output = dfda_spline(a,b,grid=False)
         return output.reshape(-1)
     def d2fda2_impl(a,b):
         output = dfda_spline.partial_x(a,b)
+        # output = dfda_spline.partial_derivative(1,0)(a,b,grid=False)
         return output.reshape(-1)
     def d2fdab_impl(a,b):
         output = dfda_spline.partial_y(a,b)
+        # output = dfda_spline.partial_derivative(0,1)(a,b,grid=False)
         return output.reshape(-1)
     
     def dfda_external(derivatives):
@@ -343,13 +350,13 @@ def cahn_hilliard_spline(ic_fun_a, ic_fun_b, chi12, chi13, chi23, N1,N2,N3,strid
     dfda.external_function = dfda_external
 
     def dfdb_impl(a,b):
-        output = dfdb_spline(a,b)
+        output = dfdb_spline(a,b,grid=False)
         return output.reshape(-1)
     def d2fdba_impl(a,b):
-        output = dfdb_spline.partial_x(a,b)
+        output = dfdb_spline.partial_derivative(1,0)(a,b,grid=False)
         return output.reshape(-1)
     def d2fdb2_impl(a,b):
-        output = dfdb_spline.partial_y(a,b)
+        output = dfdb_spline.partial_derivative(0,1)(a,b,grid=False)
         return output.reshape(-1)
     
     def dfdb_external(derivatives):
@@ -368,11 +375,11 @@ def cahn_hilliard_spline(ic_fun_a, ic_fun_b, chi12, chi13, chi23, N1,N2,N3,strid
         output = dfdc_spline(a,b)
         return output.reshape(-1)
     def d2fdca_impl(a,b):
-        h=1e-14
+        h=1e-6
         output = (dfdc_spline(a+h,b)-dfdc_spline(a-h,b))/(2*h)
         return output.reshape(-1)
     def d2fdcb_impl(a,b):
-        h=1e-14
+        h=1e-6
         output = (dfdc_spline(a,b+h)-dfdc_spline(a,b-h))/(2*h)
         return output.reshape(-1)
     
@@ -470,6 +477,8 @@ def cahn_hilliard_spline(ic_fun_a, ic_fun_b, chi12, chi13, chi23, N1,N2,N3,strid
     J_expanded = ufl.algorithms.expand_derivatives(J)
     F_replaced, F_external_operators = replace_external_operators(F)
     J_replaced, J_external_operators = replace_external_operators(J_expanded)
+
+
     evaluated_operands = evaluate_operands(F_external_operators)
     _ = evaluate_external_operators(F_external_operators, evaluated_operands)
     _ = evaluate_external_operators(J_external_operators, evaluated_operands)
@@ -477,10 +486,13 @@ def cahn_hilliard_spline(ic_fun_a, ic_fun_b, chi12, chi13, chi23, N1,N2,N3,strid
     #Set up solver
     problem = LinearProblem(J_replaced, -F_replaced, du)
 
+    #Set up time stepping
+    stride = stride
+    counter = 0
+
     while t < tend - 1e-8:
         #Update t
         t += dt
-        print(t)
 
         #Solve
         problem.assemble_vector()
@@ -505,6 +517,7 @@ def cahn_hilliard_spline(ic_fun_a, ic_fun_b, chi12, chi13, chi23, N1,N2,N3,strid
             residual = problem.b.norm()
             rel_error = np.abs(residual / residual_0)
             iteration += 1
+            print(f"Iteration:{iteration-1}, Residual:{residual}, Rel_error:{rel_error}")
         if iteration == max_iter:
             raise RuntimeError("Maximum number of iterations, exiting") 
         if residual > abs_tol or rel_error > rel_tol:

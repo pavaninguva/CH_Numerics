@@ -10,4 +10,4 @@ def ic_fun_b(x):
     values = 0.2 + 0.02*(0.5-np.random.rand(x.shape[1]))
     return values
 
-cahn_hilliard_spline(ic_fun_a,ic_fun_b,6,6,6,1,1,1,20,100,0.5,0.1,False,True)
+cahn_hilliard_spline(ic_fun_a,ic_fun_b,10,10,10,1,1,1,10,75,0.4,0.1,False,True)

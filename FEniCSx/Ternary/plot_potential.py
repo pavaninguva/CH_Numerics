@@ -22,11 +22,11 @@ P1, P2 = np.meshgrid(phi1, phi2, indexing='ij')
 dfda = (1/N1) * np.log(P1) + (1/N1) + chi12 * P2 + chi13 * (1 - P1 - P2)
 dfdb = (1/N2) * np.log(P2) + (1/N2) + chi12 * P1 + chi23 * (1 - P1 - P2)
 
-dfda_spline = generate_spline_dfdphi1(chi12,chi13,N1,400)
-dfda_spline_vals = dfda_spline(P1,P2)
+dfda_spline = generate_spline_dfdphi1(chi12,chi13,N1,500)
+dfda_spline_vals = dfda_spline(P1,P2,grid=False)
 
-dfdb_spline = generate_spline_dfdphi2(chi12,chi23,N2,400)
-dfdb_spline_vals = dfdb_spline(P1,P2)
+dfdb_spline = generate_spline_dfdphi2(chi12,chi23,N2,500)
+dfdb_spline_vals = dfdb_spline(P1,P2,grid=False)
 
 
 #Sort out dfdc
@@ -62,7 +62,7 @@ phi2_all = np.concatenate([phi2_int, phi2_b])
 dfdc_all = np.concatenate([dfdc_int, dfdc_b])
 
 #Compute spline for dfdphi3
-dfdphi3_spline = generate_spline_dfdphi3(chi13,chi23,N3,400)
+dfdphi3_spline = generate_spline_dfdphi3(chi13,chi23,N3,500)
 dfdc_spline_vals = dfdphi3_spline(phi1_all,phi2_all)
 
 # 4) Triangulate and plot

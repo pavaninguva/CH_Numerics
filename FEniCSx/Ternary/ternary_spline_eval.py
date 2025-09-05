@@ -23,7 +23,7 @@ def dfdphi2(phi1,phi2, chi12, chi23, N2):
 def compute_errors_2d(f_true, spline, eval_pts1, eval_pts2):
     """Compute RMSE and MAE between f_true and spline on a grid."""
     P1, P2 = np.meshgrid(eval_pts1, eval_pts2, indexing='ij')
-    approx_vals = spline(P1,P2)
+    approx_vals = spline(P1,P2,grid=False)
     true_vals   = f_true(P1, P2)
     err = true_vals - approx_vals
     rmse = np.sqrt(np.mean(err**2))
@@ -75,11 +75,6 @@ def compute_errors_2d_dfdc(knots,chi13,chi23,N3):
 
 
 
-
-
-
-
-
 #Case 1: chi12 = chi13 = chi23 = 30, N1 = N2 = N3 = 1
 chi = 30
 N1 = N2 = N3 = 1
@@ -95,7 +90,7 @@ knot_vals = []
 dfdphi3_knot_vals = []
 
 phi_test = np.linspace(1e-16, 1-1e-16, 100)
-knots_range = np.arange(110,1800,90)
+knots_range = np.arange(50,1200,100)
 
 for knot in knots_range:
     print(knot)

@@ -103,9 +103,9 @@ function tend_generator(chi)
         tend = 30
     elseif 10 <= chi < 15
         tend = 15
-    elseif 15 <= chi < 18
+    elseif 15 <= chi < 17
         tend = 10
-    elseif 18 <= chi < 25
+    elseif 17 <= chi < 25
         tend = 8
     elseif 25 <= chi < 30
         tend = 5
@@ -645,8 +645,8 @@ function param_sweep_min_dt(chi_values, dx_values; N1=1.0, N2=1.0, L = 20.0, ene
     return min_dt_matrix
 end
 
-chi_values = 4:1:17
-dx_values = [0.08,0.1,0.16,0.2,0.25,0.4,0.5,0.8]
+chi_values = 4:1:20
+dx_values = [0.1,0.16,0.2,0.25,0.4,0.5,0.8]
 
 
 
@@ -901,7 +901,7 @@ function impliciteuler_2d(chi, N1, N2, dx, L, dt, energy_method)
             min_max_factor = 1.3,
             )
 
-        solver = solve(prob_sparse, NewtonRaphson(linsolve = KLUFactorization()), show_trace = Val(false),termination_condition=term_cond,abstol=1e-8, maxiters=1000)
+        solver = solve(prob_sparse, NewtonRaphson(linsolve = KLUFactorization()), show_trace = Val(false),termination_condition=term_cond,abstol=1e-8, maxiters=100)
         
         println("non-linear iterations : ", solver.stats.nsteps)
         # Update c for the next time step
@@ -999,10 +999,10 @@ end
 
 ### Test Backwards Euler    
 
-chi_values_be = 4:1:19
-dx_values_be = [0.16,0.2,0.25,0.4,0.5,0.8]
+chi_values_be = 4:1:20
+dx_values_be = [0.1,0.16,0.2,0.25,0.4,0.5,0.8]
 
-dt_vals_backwards_euler_ana = run_dt_sweep(chi_values_be, dx_values_be; N1=1.0, N2=1.0, energy_method="analytical", dt_start=0.03125, dt_min=1e-4,results_file=joinpath(datadir,"2d_dt_be_ana.csv"))
+dt_vals_backwards_euler_ana = run_dt_sweep(chi_values_be, dx_values_be; N1=1.0, N2=1.0, energy_method="analytical", dt_start=0.000976563, dt_min=1e-4,results_file=joinpath(datadir,"2d_dt_be_ana.csv"))
 log_dt_be_ana = log10.(dt_vals_backwards_euler_ana)
 finite_values_be_ana = log_dt_be_ana[.!isnan.(log_dt_be_ana)]
 cmin_be_ana = minimum(finite_values_be_ana)
@@ -1018,7 +1018,7 @@ p3= heatmap(dx_values_be, chi_values_be, log_dt_be_ana,
     titlefont=Plots.font("Computer Modern",12),size=(500,500))
 
 
-dt_vals_backwards_euler_spline = run_dt_sweep(chi_values_be, dx_values_be; N1=1.0, N2=1.0, energy_method="spline", dt_start=0.25, dt_min=1e-4,results_file=joinpath(datadir,"2d_dt_be_spline.csv"))
+dt_vals_backwards_euler_spline = run_dt_sweep(chi_values_be, dx_values_be; N1=1.0, N2=1.0, energy_method="spline", dt_start=0.000976563, dt_min=1e-4,results_file=joinpath(datadir,"2d_dt_be_spline.csv"))
 log_dt_be_spline = log10.(dt_vals_backwards_euler_spline)
 finite_values_be_spline = log_dt_be_spline[.!isnan.(log_dt_be_spline)]
 cmin_be_spline = minimum(finite_values_be_spline)
@@ -1035,3 +1035,4 @@ p4= heatmap(dx_values_be, chi_values_be, log_dt_be_spline,
 
 
 p_all = plot(p1,p2,p3,p4, layout=4, size=(1400,1400), dpi=300, leftmargin=3mm, righhmargin=3mm,bottommargin=3mm)
+savefig("2d_benchmarking_case2_stability.png")
